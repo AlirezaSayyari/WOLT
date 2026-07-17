@@ -6,6 +6,9 @@ __pycache__/
 .pytest_cache/
 .coverage
 .venv/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo
 
 # Local design handoff artifacts may contain environment-specific examples.
 docs/design/04-phase-0-1-delivery.md

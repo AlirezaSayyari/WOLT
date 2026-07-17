@@ -4,10 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wolt"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "Wake-on-LAN Translator for FortiGate"
 requires-python = ">=3.12"
-dependencies = ["PyYAML>=6.0,<7", "paramiko>=3.4,<5"]
+dependencies = [
+    "PyYAML>=6.0,<7",
+    "paramiko>=3.4,<5",
+    "alembic>=1.16,<2",
+    "fastapi>=0.115,<1",
+    "psycopg[binary]>=3.2,<4",
+    "SQLAlchemy>=2.0,<3",
+    "uvicorn[standard]>=0.34,<1",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

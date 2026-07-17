@@ -297,10 +297,10 @@ example can be documented later.
 - Seamless live migration between database engines.
 - General-purpose workflow automation.
 
-## Architecture decisions awaiting approval
+## Architecture decisions recorded for Phase 2
 
-1. Serve SPA from the Python container, or require a separate web proxy?
-2. Keep PostgreSQL as the only bundled database and SQL Server external-only?
-3. Is a 90-day default wake-event retention acceptable?
-4. Is single-instance processing sufficient for the first public web release?
-5. Should MAC addresses be fully visible to Operators or masked by default?
+1. The Python application container serves the compiled SPA.
+2. PostgreSQL is the only bundled database; SQL Server remains external-only and pending compatibility tests.
+3. Wake-event retention defaults to 90 days and audit retention to 365 days.
+4. The first web release remains single-instance.
+5. MAC-visibility policy remains open until role and event APIs are implemented.

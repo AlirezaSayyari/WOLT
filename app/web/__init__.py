@@ -1,0 +1,1 @@
+"""WOLT management web application."""

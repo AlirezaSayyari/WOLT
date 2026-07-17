@@ -1,3 +1,11 @@
+FROM node:24-alpine AS web-build
+
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web ./
+RUN npm run build
+
 FROM python:3.12-slim AS runtime-base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -12,6 +20,9 @@ RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin wolt \
     && install -d -o wolt -g wolt /home/wolt/.ssh
 
 COPY --chown=wolt:wolt app ./app
+COPY --chown=wolt:wolt migrations ./migrations
+COPY --chown=wolt:wolt alembic.ini ./alembic.ini
+COPY --from=web-build --chown=wolt:wolt /web/dist ./app/web/static
 
 USER wolt
 
