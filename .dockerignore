@@ -1,0 +1,8 @@
+.git
+.env
+.venv
+.pytest_cache
+__pycache__
+*.pyc
+config/interfaces.yaml
+ssh/known_hosts

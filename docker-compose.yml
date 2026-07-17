@@ -1,0 +1,12 @@
+services:
+  wolt:
+    build: .
+    image: ${WOLT_IMAGE:-wolt:latest}
+    container_name: wolt
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config/interfaces.yaml:/app/config/interfaces.yaml:ro
+      - ./ssh/known_hosts:/home/wolt/.ssh/known_hosts:ro
+    network_mode: host

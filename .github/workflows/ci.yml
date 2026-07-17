@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: test
+          load: true
+          tags: wolt:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run tests
+        run: docker run --rm wolt:test
+      - name: Build production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: production
+          load: true
+          tags: wolt:ci
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

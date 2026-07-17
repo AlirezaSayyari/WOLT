@@ -1,0 +1,12 @@
+.env
+config/interfaces.yaml
+ssh/known_hosts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+
+# Local design handoff artifacts may contain environment-specific examples.
+docs/design/04-phase-0-1-delivery.md
+docs/design/wolt-ui-concept-v1.png
