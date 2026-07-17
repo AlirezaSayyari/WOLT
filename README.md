@@ -6,6 +6,10 @@
 curl -fsSL https://raw.githubusercontent.com/AlirezaSayyari/WOLT/main/install.sh | sudo bash
 ```
 
+<p align="center">
+  <img src="docs/wolt-cover.png" alt="WOLT Wake-on-LAN translation flow" width="1200">
+</p>
+
 [![CI](https://github.com/AlirezaSayyari/WOLT/actions/workflows/ci.yml/badge.svg)](https://github.com/AlirezaSayyari/WOLT/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/docker/v/alirezasayyari/wolt?sort=semver&label=Docker)](https://hub.docker.com/r/alirezasayyari/wolt)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
