@@ -9,7 +9,11 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.web"]
     environment:
-      DATABASE_URL: postgresql+psycopg://wolt:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.web}@postgres:5432/wolt
+      WOLT_DB_HOST: postgres
+      WOLT_DB_PORT: 5432
+      WOLT_DB_NAME: wolt
+      WOLT_DB_USER: wolt
+      WOLT_DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.web}
       WOLT_WEB_HOST: 0.0.0.0
       WOLT_WEB_PORT: ${WOLT_WEB_PORT:-8080}
       WOLT_ENVIRONMENT: ${WOLT_ENVIRONMENT:-production}

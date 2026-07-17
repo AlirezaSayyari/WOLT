@@ -1,4 +1,7 @@
 .env
+.env.*
+!.env.example
+!.env.web.example
 config/interfaces.yaml
 ssh/known_hosts
 __pycache__/

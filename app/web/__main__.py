@@ -20,7 +20,9 @@ def main() -> int:
 
     if settings.auto_migrate:
         alembic_config = Config("/app/alembic.ini")
-        alembic_config.set_main_option("sqlalchemy.url", settings.database_url)
+        alembic_config.set_main_option(
+            "sqlalchemy.url", settings.database_url.replace("%", "%%")
+        )
         command.upgrade(alembic_config, "head")
 
     uvicorn.run(

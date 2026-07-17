@@ -16,6 +16,10 @@ All notable changes follow Keep a Changelog and semantic versioning.
 - The unified image now contains web assets and database tooling while retaining headless mode as its default command.
 - CI validates the Vue production build, Python tests, production image, and PostgreSQL migration drift.
 
+### Fixed
+
+- Database passwords containing URL-reserved characters such as `@`, `:`, `/`, or `?` are encoded safely.
+
 ## [0.1.0] - 2026-07-17
 
 ### Added

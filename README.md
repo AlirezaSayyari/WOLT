@@ -50,7 +50,7 @@ Start the isolated preview stack:
 
 ```bash
 cp .env.web.example .env.web
-# Replace POSTGRES_PASSWORD in .env.web with a long URL-safe value.
+# Replace POSTGRES_PASSWORD in .env.web with a long random value.
 docker compose --env-file .env.web -f compose.web.yml up -d --build
 ```
 

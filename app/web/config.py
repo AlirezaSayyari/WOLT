@@ -2,6 +2,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from sqlalchemy import URL
+
 
 class WebConfigError(ValueError):
     """Raised when web-mode configuration is invalid."""
@@ -26,6 +28,16 @@ def _port(value: str) -> int:
     return port
 
 
+def _database_port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise WebConfigError("WOLT_DB_PORT must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise WebConfigError("WOLT_DB_PORT must be between 1 and 65535")
+    return port
+
+
 @dataclass(frozen=True)
 class WebSettings:
     database_url: str
@@ -39,10 +51,22 @@ class WebSettings:
     def from_env(cls, environ: dict[str, str] | None = None) -> "WebSettings":
         env = dict(os.environ if environ is None else environ)
         database_url = env.get("DATABASE_URL", "").strip()
-        if not database_url:
-            raise WebConfigError("DATABASE_URL is required in web mode")
-        if not database_url.startswith("postgresql+psycopg://"):
+        if database_url and not database_url.startswith("postgresql+psycopg://"):
             raise WebConfigError("DATABASE_URL must use postgresql+psycopg in this phase")
+        if not database_url:
+            password = env.get("WOLT_DB_PASSWORD", "")
+            if not password:
+                raise WebConfigError(
+                    "DATABASE_URL or WOLT_DB_PASSWORD is required in web mode"
+                )
+            database_url = URL.create(
+                drivername="postgresql+psycopg",
+                username=env.get("WOLT_DB_USER", "wolt"),
+                password=password,
+                host=env.get("WOLT_DB_HOST", "postgres"),
+                port=_database_port(env.get("WOLT_DB_PORT", "5432")),
+                database=env.get("WOLT_DB_NAME", "wolt"),
+            ).render_as_string(hide_password=False)
         return cls(
             database_url=database_url,
             host=env.get("WOLT_WEB_HOST", "0.0.0.0").strip() or "0.0.0.0",

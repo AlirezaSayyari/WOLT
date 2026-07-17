@@ -6,7 +6,7 @@ from app.web.config import WebConfigError, WebSettings
 
 
 def test_web_settings_require_database_url() -> None:
-    with pytest.raises(WebConfigError, match="DATABASE_URL"):
+    with pytest.raises(WebConfigError, match="DATABASE_URL or WOLT_DB_PASSWORD"):
         WebSettings.from_env({})
 
 
@@ -43,3 +43,15 @@ def test_web_settings_reject_invalid_port(port: str) -> None:
 def test_web_settings_reject_unsupported_database_driver() -> None:
     with pytest.raises(WebConfigError, match=r"postgresql\+psycopg"):
         WebSettings.from_env({"DATABASE_URL": "sqlite:///wolt.db"})
+
+
+def test_web_settings_safely_encode_database_password_components() -> None:
+    settings = WebSettings.from_env(
+        {
+            "WOLT_DB_PASSWORD": "P@ss:word/with?symbols",
+            "WOLT_DB_HOST": "postgres",
+        }
+    )
+
+    assert "P%40ss%3Aword%2Fwith%3Fsymbols" in settings.database_url
+    assert settings.database_url.endswith("@postgres:5432/wolt")
