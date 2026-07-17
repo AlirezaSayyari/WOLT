@@ -19,6 +19,9 @@ def test_web_settings_parse_explicit_values() -> None:
             "WOLT_ENVIRONMENT": "development",
             "WOLT_AUTO_MIGRATE": "yes",
             "WOLT_STATIC_DIR": "/srv/wolt/static",
+            "WOLT_BOOTSTRAP_TOKEN": "bootstrap-test-token",
+            "WOLT_SESSION_SECURE": "true",
+            "WOLT_SESSION_HOURS": "24",
         }
     )
 
@@ -27,6 +30,9 @@ def test_web_settings_parse_explicit_values() -> None:
     assert settings.environment == "development"
     assert settings.auto_migrate is True
     assert settings.static_dir == Path("/srv/wolt/static")
+    assert settings.bootstrap_token == "bootstrap-test-token"
+    assert settings.session_secure is True
+    assert settings.session_hours == 24
 
 
 @pytest.mark.parametrize("port", ["0", "65536", "not-a-port"])
@@ -55,3 +61,14 @@ def test_web_settings_safely_encode_database_password_components() -> None:
 
     assert "P%40ss%3Aword%2Fwith%3Fsymbols" in settings.database_url
     assert settings.database_url.endswith("@postgres:5432/wolt")
+
+
+@pytest.mark.parametrize("hours", ["0", "169", "not-a-number"])
+def test_web_settings_reject_invalid_session_lifetime(hours: str) -> None:
+    with pytest.raises(WebConfigError, match="WOLT_SESSION_HOURS"):
+        WebSettings.from_env(
+            {
+                "DATABASE_URL": "postgresql+psycopg://wolt:secret@postgres/wolt",
+                "WOLT_SESSION_HOURS": hours,
+            }
+        )

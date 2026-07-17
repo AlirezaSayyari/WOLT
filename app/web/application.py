@@ -1,13 +1,14 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from fastapi import APIRouter, FastAPI, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.infrastructure.database import Database
+from app.web.auth_routes import create_auth_router
 from app.web.config import WebSettings
 
 
@@ -55,6 +56,7 @@ def _api_router(database: DatabaseHealth, settings: WebSettings) -> APIRouter:
             "database_ready": database_ready,
             "schema_ready": schema_ready,
             "setup_required": not owner_exists,
+            "bootstrap_configured": bool(settings.bootstrap_token),
         }
 
     @router.get("/system/info", tags=["system"])
@@ -91,6 +93,9 @@ def create_app(
         lifespan=lifespan,
     )
     app.include_router(_api_router(resolved_database, resolved_settings))
+    app.include_router(
+        create_auth_router(cast(Database, resolved_database), resolved_settings)
+    )
 
     @app.middleware("http")
     async def security_headers(
@@ -100,6 +105,11 @@ def create_app(
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+            "style-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
+            "form-action 'self'"
+        )
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response

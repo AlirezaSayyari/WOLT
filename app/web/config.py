@@ -38,6 +38,16 @@ def _database_port(value: str) -> int:
     return port
 
 
+def _session_hours(value: str) -> int:
+    try:
+        hours = int(value)
+    except ValueError as exc:
+        raise WebConfigError("WOLT_SESSION_HOURS must be an integer") from exc
+    if not 1 <= hours <= 168:
+        raise WebConfigError("WOLT_SESSION_HOURS must be between 1 and 168")
+    return hours
+
+
 @dataclass(frozen=True)
 class WebSettings:
     database_url: str
@@ -46,6 +56,9 @@ class WebSettings:
     environment: str = "production"
     auto_migrate: bool = False
     static_dir: Path = Path("/app/app/web/static")
+    bootstrap_token: str = ""
+    session_secure: bool = False
+    session_hours: int = 12
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> "WebSettings":
@@ -74,4 +87,9 @@ class WebSettings:
             environment=env.get("WOLT_ENVIRONMENT", "production").strip() or "production",
             auto_migrate=_boolean(env.get("WOLT_AUTO_MIGRATE", "false"), "WOLT_AUTO_MIGRATE"),
             static_dir=Path(env.get("WOLT_STATIC_DIR", "/app/app/web/static")),
+            bootstrap_token=env.get("WOLT_BOOTSTRAP_TOKEN", ""),
+            session_secure=_boolean(
+                env.get("WOLT_SESSION_SECURE", "false"), "WOLT_SESSION_SECURE"
+            ),
+            session_hours=_session_hours(env.get("WOLT_SESSION_HOURS", "12")),
         )

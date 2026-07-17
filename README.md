@@ -38,26 +38,32 @@ Guacamole can send a standard Wake-on-LAN magic packet, but the target workstati
 
 The current `v0.1.x` release is a tested headless MVP with a built-in FortiGate SSH adapter. The architecture is intentionally designed for additional edge-device providers and a management web interface in later releases.
 
-## Web foundation preview
+## Authenticated web preview
 
-The `main` development line now contains the first `v0.2` web foundation. It adds a
-responsive Vue dashboard, a FastAPI management API, PostgreSQL persistence, and
-versioned Alembic migrations. Authentication and configuration CRUD remain disabled
-until their implementation phases are complete, so this preview must not replace a
-production `v0.1.0` deployment yet.
+The `v0.2` development preview adds a responsive Vue management interface, FastAPI
+API, PostgreSQL persistence, versioned Alembic migrations, first-run Owner setup,
+server-side sessions, login/logout, and offline password recovery. Device and listener
+configuration remains intentionally marked as roadmap functionality, so this preview
+must not replace a production `v0.1.0` deployment yet.
 
 Start the isolated preview stack:
 
 ```bash
 cp .env.web.example .env.web
-# Replace POSTGRES_PASSWORD in .env.web with a long random value.
+# Replace POSTGRES_PASSWORD and WOLT_BOOTSTRAP_TOKEN with separate random values.
 docker compose --env-file .env.web -f compose.web.yml up -d --build
 ```
 
-Open `http://WOLT_HOST:8080`. The application starts as non-root with a read-only
+Open `http://WOLT_HOST:8080` and enter the bootstrap token to create the first Owner.
+Save the one-time recovery code in a password manager. The application starts as non-root with a read-only
 root filesystem, runs the initial migration, and keeps PostgreSQL on an internal
 Docker network. The configured UDP range `40000–40099` is published for later engine
 reconciliation work.
+
+For an HTTPS deployment, set `WOLT_SESSION_SECURE=true`. `WOLT_SESSION_HOURS`
+controls the server-side session lifetime and defaults to 12 hours. The bootstrap
+token only authorizes creation of the first Owner; subsequent setup attempts are
+rejected by the database-backed Owner invariant.
 
 Stop the preview without deleting its database:
 
@@ -276,7 +282,7 @@ The CI workflow runs the tests, performs a production-image build, and scans the
 ## Roadmap
 
 - Web foundation: Vue shell, management API, PostgreSQL, and migrations — implemented on `main`
-- First-run Owner setup, authentication, recovery, and session management
+- First-run Owner setup, authentication, recovery, and session management — implemented in the development preview
 - Device and listener CRUD with live validation and engine reconciliation
 - Event persistence, dashboards, audit history, and retention jobs
 - Optional external SQL Server compatibility suite and deployment profile

@@ -69,6 +69,7 @@ def test_setup_status_requires_first_owner(tmp_path: Path) -> None:
         "database_ready": True,
         "schema_ready": True,
         "setup_required": True,
+        "bootstrap_configured": False,
     }
 
 

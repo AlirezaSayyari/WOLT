@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -48,7 +49,8 @@ class Database:
         except Exception:
             return False
 
-    def sessions(self) -> Iterator[Session]:
+    @contextmanager
+    def session(self) -> Iterator[Session]:
         session = self._session_factory()
         try:
             yield session

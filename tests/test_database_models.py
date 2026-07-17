@@ -10,7 +10,9 @@ def test_foundation_schema_contains_expected_tables() -> None:
         "devices",
         "engine_state",
         "listener_mappings",
+        "recovery_codes",
         "users",
+        "user_sessions",
         "wake_events",
     }
 
