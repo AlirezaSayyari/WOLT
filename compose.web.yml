@@ -5,7 +5,7 @@ services:
     build:
       context: .
       target: production
-    image: ${WOLT_IMAGE:-wolt:phase3}
+    image: ${WOLT_IMAGE:-wolt:phase5}
     restart: unless-stopped
     command: ["python", "-m", "app.web"]
     environment:
@@ -19,6 +19,7 @@ services:
       WOLT_ENVIRONMENT: ${WOLT_ENVIRONMENT:-production}
       WOLT_AUTO_MIGRATE: ${WOLT_AUTO_MIGRATE:-true}
       WOLT_BOOTSTRAP_TOKEN: ${WOLT_BOOTSTRAP_TOKEN:-}
+      WOLT_MASTER_KEY: ${WOLT_MASTER_KEY:-}
       WOLT_SESSION_SECURE: ${WOLT_SESSION_SECURE:-false}
       WOLT_SESSION_HOURS: ${WOLT_SESSION_HOURS:-12}
     ports:

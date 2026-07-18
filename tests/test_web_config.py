@@ -20,6 +20,7 @@ def test_web_settings_parse_explicit_values() -> None:
             "WOLT_AUTO_MIGRATE": "yes",
             "WOLT_STATIC_DIR": "/srv/wolt/static",
             "WOLT_BOOTSTRAP_TOKEN": "bootstrap-test-token",
+            "WOLT_MASTER_KEY": "ab" * 32,
             "WOLT_SESSION_SECURE": "true",
             "WOLT_SESSION_HOURS": "24",
         }
@@ -31,6 +32,7 @@ def test_web_settings_parse_explicit_values() -> None:
     assert settings.auto_migrate is True
     assert settings.static_dir == Path("/srv/wolt/static")
     assert settings.bootstrap_token == "bootstrap-test-token"
+    assert settings.master_key == "ab" * 32
     assert settings.session_secure is True
     assert settings.session_hours == 24
 
@@ -70,5 +72,16 @@ def test_web_settings_reject_invalid_session_lifetime(hours: str) -> None:
             {
                 "DATABASE_URL": "postgresql+psycopg://wolt:secret@postgres/wolt",
                 "WOLT_SESSION_HOURS": hours,
+            }
+        )
+
+
+@pytest.mark.parametrize("key", ["not-hex", "ab" * 16, "ab" * 33])
+def test_web_settings_reject_invalid_master_key(key: str) -> None:
+    with pytest.raises(WebConfigError, match="WOLT_MASTER_KEY"):
+        WebSettings.from_env(
+            {
+                "DATABASE_URL": "postgresql+psycopg://wolt:secret@postgres/wolt",
+                "WOLT_MASTER_KEY": key,
             }
         )

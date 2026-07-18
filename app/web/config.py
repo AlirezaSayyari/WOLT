@@ -48,6 +48,18 @@ def _session_hours(value: str) -> int:
     return hours
 
 
+def _master_key(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        decoded = bytes.fromhex(value)
+    except ValueError as exc:
+        raise WebConfigError("WOLT_MASTER_KEY must be hexadecimal") from exc
+    if len(decoded) != 32:
+        raise WebConfigError("WOLT_MASTER_KEY must contain 32 random bytes")
+    return value
+
+
 @dataclass(frozen=True)
 class WebSettings:
     database_url: str
@@ -57,6 +69,7 @@ class WebSettings:
     auto_migrate: bool = False
     static_dir: Path = Path("/app/app/web/static")
     bootstrap_token: str = ""
+    master_key: str = ""
     session_secure: bool = False
     session_hours: int = 12
 
@@ -88,6 +101,7 @@ class WebSettings:
             auto_migrate=_boolean(env.get("WOLT_AUTO_MIGRATE", "false"), "WOLT_AUTO_MIGRATE"),
             static_dir=Path(env.get("WOLT_STATIC_DIR", "/app/app/web/static")),
             bootstrap_token=env.get("WOLT_BOOTSTRAP_TOKEN", ""),
+            master_key=_master_key(env.get("WOLT_MASTER_KEY", "")),
             session_secure=_boolean(
                 env.get("WOLT_SESSION_SECURE", "false"), "WOLT_SESSION_SECURE"
             ),

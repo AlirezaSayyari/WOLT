@@ -7,9 +7,24 @@ from fastapi import APIRouter, FastAPI, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.application.engine_runtime import EngineRuntime
+from app.application.operations_service import (
+    DeviceService,
+    EngineStateService,
+    ListenerService,
+)
+from app.application.observability_service import (
+    ObservabilityService,
+    RetentionService,
+    RetentionWorker,
+)
+from app.drivers import DriverRegistry
+from app.infrastructure.crypto import CredentialCipher
 from app.infrastructure.database import Database
 from app.web.auth_routes import create_auth_router
 from app.web.config import WebSettings
+from app.web.operations_routes import create_operations_router
+from app.web.observability_routes import create_observability_router
 
 
 API_PREFIX = "/api/v1"
@@ -57,6 +72,7 @@ def _api_router(database: DatabaseHealth, settings: WebSettings) -> APIRouter:
             "schema_ready": schema_ready,
             "setup_required": not owner_exists,
             "bootstrap_configured": bool(settings.bootstrap_token),
+            "master_key_configured": bool(settings.master_key),
         }
 
     @router.get("/system/info", tags=["system"])
@@ -77,11 +93,38 @@ def create_app(
 ) -> FastAPI:
     resolved_settings = settings or WebSettings.from_env()
     resolved_database = database or Database(resolved_settings.database_url)
+    runtime: EngineRuntime | None = None
+    retention_worker: RetentionWorker | None = None
+
+    if isinstance(resolved_database, Database):
+        registry = DriverRegistry()
+        cipher = (
+            CredentialCipher(resolved_settings.master_key)
+            if resolved_settings.master_key
+            else None
+        )
+        device_service = DeviceService(resolved_database, registry, cipher)
+        listener_service = ListenerService(resolved_database, registry)
+        engine_service = EngineStateService(resolved_database)
+        runtime = EngineRuntime(resolved_database, device_service, registry)
+        observability_service = ObservabilityService(resolved_database)
+        retention_service = RetentionService(resolved_database)
+        retention_worker = RetentionWorker(retention_service)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        yield
-        resolved_database.dispose()
+        try:
+            if runtime is not None:
+                runtime.start_from_desired_state()
+            if retention_worker is not None:
+                retention_worker.start()
+            yield
+        finally:
+            if retention_worker is not None:
+                retention_worker.stop()
+            if runtime is not None:
+                runtime.shutdown()
+            resolved_database.dispose()
 
     docs_url = "/api/docs" if resolved_settings.environment != "production" else None
     app = FastAPI(
@@ -96,6 +139,27 @@ def create_app(
     app.include_router(
         create_auth_router(cast(Database, resolved_database), resolved_settings)
     )
+    if runtime is not None:
+        app.include_router(
+            create_operations_router(
+                database=resolved_database,
+                settings=resolved_settings,
+                registry=registry,
+                devices=device_service,
+                listeners=listener_service,
+                engine_state=engine_service,
+                runtime=runtime,
+            )
+        )
+        app.include_router(
+            create_observability_router(
+                database=resolved_database,
+                settings=resolved_settings,
+                observability=observability_service,
+                retention=retention_service,
+                runtime=runtime,
+            )
+        )
 
     @app.middleware("http")
     async def security_headers(

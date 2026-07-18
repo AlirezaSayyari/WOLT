@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Activity, Boxes, CircleGauge, Cpu, FileClock, LayoutDashboard, ListTree,
   LogOut, Menu, Moon, Network, Search, Settings, ShieldCheck, Sun, X,
 } from '@lucide/vue'
 import { api } from '../api'
+import type { EngineState } from '../api'
 import { session } from '../session'
 import BrandMark from './BrandMark.vue'
 
@@ -14,8 +15,10 @@ const emit = defineEmits<{ toggleTheme: [] }>()
 const router = useRouter()
 const sidebarOpen = ref(false)
 const accountOpen = ref(false)
+const engine = ref<EngineState | null>(null)
 
 const initials = computed(() => session.user?.username.slice(0, 2).toUpperCase() ?? 'WO')
+const engineLabel = computed(() => engine.value ? `Engine ${engine.value.observed_state}` : 'Engine unavailable')
 const navigation = [
   { group: 'Overview', items: [
     { label: 'Overview', to: '/', icon: LayoutDashboard },
@@ -41,6 +44,7 @@ async function logout() {
   accountOpen.value = false
   await router.push('/login')
 }
+onMounted(async () => { try { engine.value = await api.engine() } catch { engine.value = null } })
 </script>
 
 <template>
@@ -68,7 +72,7 @@ async function logout() {
           <Search :size="16" aria-hidden="true" /><input type="search" placeholder="Search becomes available with mappings" disabled /><kbd>⌘ K</kbd>
         </label>
         <div class="topbar-actions">
-          <div class="platform-status" data-state="ready"><span></span>Platform ready</div>
+          <RouterLink class="platform-status" :data-state="engine?.observed_state ?? 'loading'" to="/engine"><span></span>{{ engineLabel }}</RouterLink>
           <button class="icon-button" type="button" :aria-label="`Use ${theme === 'dark' ? 'light' : 'dark'} theme`" @click="emit('toggleTheme')">
             <Sun v-if="theme === 'dark'" :size="17" /><Moon v-else :size="17" />
           </button>

@@ -106,6 +106,7 @@ class ListenerMapping(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     udp_port: Mapped[int] = mapped_column(Integer, nullable=False)
+    allowed_source_ip: Mapped[str] = mapped_column(String(45), nullable=False)
     driver_parameters: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="inactive")
@@ -121,6 +122,10 @@ class WakeEvent(Base):
     __table_args__ = (
         Index("ix_wake_events_occurred_at", "occurred_at"),
         Index("ix_wake_events_result_code", "result_code"),
+        Index("ix_wake_events_mapping_id", "mapping_id"),
+        Index("ix_wake_events_device_id", "device_id"),
+        Index("ix_wake_events_source_ip", "source_ip"),
+        Index("ix_wake_events_correlation_id", "correlation_id", unique=True),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -144,7 +149,12 @@ class WakeEvent(Base):
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
-    __table_args__ = (Index("ix_audit_events_occurred_at", "occurred_at"),)
+    __table_args__ = (
+        Index("ix_audit_events_occurred_at", "occurred_at"),
+        Index("ix_audit_events_action", "action"),
+        Index("ix_audit_events_object_type", "object_type"),
+        Index("ix_audit_events_actor_user_id", "actor_user_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     actor_user_id: Mapped[UUID | None] = mapped_column(

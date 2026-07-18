@@ -13,6 +13,14 @@ All notable changes follow Keep a Changelog and semantic versioning.
 - First-run Owner setup with a one-time offline recovery code.
 - Argon2id password hashing, opaque server-side sessions, login/logout, and recovery APIs.
 - Vue Router navigation, bundled Lucide icons, functional account controls, and an architecture guide.
+- Secure web-environment initializer that generates database and first-run secrets without manual editing.
+- Phase 4 FortiGate SSH driver registry and encrypted edge-device credential storage.
+- Device and listener CRUD, automatic UDP port allocation, pinned host-key validation, and connection tests.
+- In-process engine reconciliation with pause/resume controls and database-backed wake outcomes.
+- Phase 5 wake-event explorer with filters, pagination, correlation details, and CSV export.
+- Real 24-hour dashboard metrics, outcome series, device health, and recent event activity.
+- Searchable administrative audit trail containing secret-safe change records.
+- Configurable event/audit retention with PostgreSQL-locked hourly and on-demand cleanup.
 
 ### Changed
 

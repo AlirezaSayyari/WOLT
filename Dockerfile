@@ -34,6 +34,7 @@ USER root
 COPY requirements-dev.txt pyproject.toml ./
 RUN pip install --no-cache-dir -r requirements-dev.txt
 COPY --chown=wolt:wolt tests ./tests
+COPY --chown=wolt:wolt scripts ./scripts
 USER wolt
 CMD ["pytest", "-q"]
 

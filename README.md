@@ -42,28 +42,49 @@ The current `v0.1.x` release is a tested headless MVP with a built-in FortiGate 
 
 The `v0.2` development preview adds a responsive Vue management interface, FastAPI
 API, PostgreSQL persistence, versioned Alembic migrations, first-run Owner setup,
-server-side sessions, login/logout, and offline password recovery. Device and listener
-configuration remains intentionally marked as roadmap functionality, so this preview
-must not replace a production `v0.1.0` deployment yet.
+server-side sessions, login/logout, offline password recovery, encrypted FortiGate
+device management, listener mappings, live engine controls, wake-event analytics,
+CSV export, an administrative audit trail, and automated retention. Production
+hardening is still in development, so this preview must not replace a production
+`v0.1.0` deployment yet.
 
 Start the isolated preview stack:
 
 ```bash
-cp .env.web.example .env.web
-# Replace POSTGRES_PASSWORD and WOLT_BOOTSTRAP_TOKEN with separate random values.
+./scripts/init-web-env.sh
 docker compose --env-file .env.web -f compose.web.yml up -d --build
 ```
 
-Open `http://WOLT_HOST:8080` and enter the bootstrap token to create the first Owner.
+The initializer generates independent cryptographically random database and bootstrap
+secrets, writes `.env.web` with mode `600`, refuses to overwrite an existing file,
+and prints the first-run token with setup guidance. No manual secret editing is needed.
+
+Open `http://WOLT_HOST:8080` and enter the printed bootstrap token to create the first Owner.
 Save the one-time recovery code in a password manager. The application starts as non-root with a read-only
 root filesystem, runs the initial migration, and keeps PostgreSQL on an internal
-Docker network. The configured UDP range `40000–40099` is published for later engine
-reconciliation work.
+Docker network. The configured UDP range `40000–40099` is published for the reconciled
+web-managed listeners.
+
+### Upgrading an existing web preview
+
+Phase 4 encrypts device credentials with an external master key. Existing `.env.web`
+files can be upgraded without replacing any current value:
+
+```bash
+./scripts/upgrade-web-env.sh
+docker compose --env-file .env.web -f compose.web.yml up -d --build --force-recreate
+```
+
+Back up `.env.web` securely after the upgrade. Losing `WOLT_MASTER_KEY` makes the
+encrypted device credentials unrecoverable; the key is deliberately not stored in
+PostgreSQL.
 
 For an HTTPS deployment, set `WOLT_SESSION_SECURE=true`. `WOLT_SESSION_HOURS`
 controls the server-side session lifetime and defaults to 12 hours. The bootstrap
 token only authorizes creation of the first Owner; subsequent setup attempts are
-rejected by the database-backed Owner invariant.
+rejected by the database-backed Owner invariant. The bootstrap token only needs to
+remain private until Owner creation is complete. The Recovery Code shown in the UI is
+the long-term secret that must be retained.
 
 Stop the preview without deleting its database:
 
@@ -283,13 +304,13 @@ The CI workflow runs the tests, performs a production-image build, and scans the
 
 - Web foundation: Vue shell, management API, PostgreSQL, and migrations — implemented on `main`
 - First-run Owner setup, authentication, recovery, and session management — implemented in the development preview
-- Device and listener CRUD with live validation and engine reconciliation
-- Event persistence, dashboards, audit history, and retention jobs
+- Device and listener CRUD with live validation and engine reconciliation — implemented in Phase 4
+- Event explorer, dashboard analytics, CSV export, audit history, and retention jobs — implemented in Phase 5
 - Optional external SQL Server compatibility suite and deployment profile
-- Encrypted device and SMTP credentials
+- Encrypted device credentials — implemented in Phase 4; SMTP credentials remain planned
 - Schema-driven edge-device providers beyond FortiGate
 
-See [Product UX](docs/design/01-product-ux.md), [Technical Architecture](docs/design/02-architecture-erd.md), and [UI Design Specification](docs/design/03-ui-design-spec.md).
+See [Product UX](docs/design/01-product-ux.md), [Technical Architecture](docs/design/02-architecture-erd.md), [UI Design Specification](docs/design/03-ui-design-spec.md), [Phase 4 Operations](docs/design/05-phase-4-operations.md), and [Phase 5 Observability](docs/design/06-phase-5-observability.md).
 
 ## Contributing
 
