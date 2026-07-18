@@ -19,6 +19,9 @@ class FakeDatabase:
     def schema_is_ready(self) -> bool:
         return self.schema
 
+    def schema_revision(self) -> str | None:
+        return "20260718_05" if self.schema else None
+
     def owner_exists(self) -> bool:
         return self.owner
 
@@ -56,6 +59,19 @@ def test_readiness_reports_migration_required(tmp_path: Path) -> None:
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "database": "migration_required"}
+
+
+def test_system_info_reports_build_and_schema_metadata(tmp_path: Path) -> None:
+    configured = settings(tmp_path)
+    app = create_app(configured, FakeDatabase())
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/system/info")
+
+    assert response.status_code == 200
+    assert response.json()["version"] == "v1.0.0-dev"
+    assert response.json()["commit_sha"] == "local"
+    assert response.json()["schema_revision"] == "20260718_05"
 
 
 def test_setup_status_requires_first_owner(tmp_path: Path) -> None:

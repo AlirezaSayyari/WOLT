@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { Activity, ArrowRight, CheckCircle2, CircleGauge, Cpu, ListTree } from '@lucide/vue'
-import { api, type DashboardData, type Device, type EngineState } from '../api'
+import { api, type ApplicationSettings, type DashboardData, type Device, type EngineState } from '../api'
 import AppShell from '../components/AppShell.vue'
 
 defineProps<{ theme: 'light' | 'dark' }>(); const emit = defineEmits<{ toggleTheme: [] }>()
-const engine = ref<EngineState | null>(null); const devices = ref<Device[]>([]); const dashboard = ref<DashboardData | null>(null); const changing = ref(false)
+const engine = ref<EngineState | null>(null); const devices = ref<Device[]>([]); const dashboard = ref<DashboardData | null>(null); const settings = ref<ApplicationSettings | null>(null); const changing = ref(false)
 const healthyDevices = computed(() => dashboard.value?.healthy_devices ?? devices.value.filter(item => item.health_status === 'healthy').length)
 const maxBucket = computed(() => Math.max(1, ...(dashboard.value?.series.map(item => item.total) ?? [1])))
-async function load() { try { [engine.value, devices.value, dashboard.value] = await Promise.all([api.engine(), api.devices(), api.dashboard()]) } catch { /* shell reports API availability */ } }
+async function load() { try { [engine.value, devices.value, dashboard.value, settings.value] = await Promise.all([api.engine(), api.devices(), api.dashboard(), api.settings()]) } catch { /* shell reports API availability */ } }
 async function transition() { if (!engine.value) return; changing.value = true; try { engine.value = engine.value.desired_state === 'active' ? await api.pauseEngine() : await api.resumeEngine(); dashboard.value = await api.dashboard() } finally { changing.value = false } }
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
 onMounted(load)
@@ -18,7 +18,7 @@ onMounted(load)
   <section class="page-heading"><div><p class="eyebrow">OPERATIONS / OVERVIEW</p><h1>Wake orchestration</h1><p>Control and observe wake requests across segmented networks.</p></div><div class="heading-actions"><RouterLink class="secondary-button button-link" to="/listeners">Configure listeners</RouterLink><button class="primary-button button-link" :disabled="!engine || changing" @click="transition">{{ engine?.desired_state === 'active' ? 'Pause engine' : 'Resume engine' }}</button></div></section>
   <section class="metric-grid" aria-label="Platform metrics">
     <article class="metric-card"><div class="metric-title"><span class="metric-glyph"><CircleGauge :size="14" /></span><span>Engine</span><span class="tag paused">{{ engine?.observed_state ?? 'LOADING' }}</span></div><strong>{{ engine?.desired_state ?? 'Checking' }}</strong><p>Runtime control plane state</p></article>
-    <article class="metric-card"><div class="metric-title"><span class="metric-glyph"><ListTree :size="14" /></span><span>Active listeners</span></div><strong>{{ engine?.active_listeners ?? 0 }} <small>/ {{ engine?.enabled_listeners ?? 0 }}</small></strong><p>UDP range <code>40000–40099</code></p></article>
+    <article class="metric-card"><div class="metric-title"><span class="metric-glyph"><ListTree :size="14" /></span><span>Active listeners</span></div><strong>{{ engine?.active_listeners ?? 0 }} <small>/ {{ engine?.enabled_listeners ?? 0 }}</small></strong><p>UDP range <code>{{ settings?.udp_port_start ?? '—' }}–{{ settings?.udp_port_end ?? '—' }}</code></p></article>
     <article class="metric-card"><div class="metric-title"><span class="metric-glyph"><CheckCircle2 :size="14" /></span><span>Wake success</span></div><strong>{{ dashboard?.success_rate == null ? '—' : `${dashboard.success_rate}%` }}</strong><p>{{ dashboard?.total_requests ?? 0 }} requests in the last 24 hours</p></article>
     <article class="metric-card"><div class="metric-title"><span class="metric-glyph"><Cpu :size="14" /></span><span>Device health</span></div><strong>{{ healthyDevices }} <small>/ {{ dashboard?.total_devices ?? devices.length }}</small></strong><p>Healthy connection tests</p></article>
   </section>

@@ -159,6 +159,59 @@ class DeviceService:
                 raise ResourceConflictError from exc
         return self.get(device.id)
 
+    def discover_host_key(
+        self,
+        *,
+        driver_type: str,
+        configuration: dict[str, Any],
+        credentials: dict[str, Any],
+        actor_id: uuid.UUID,
+        client_ip: str,
+    ) -> dict[str, Any]:
+        driver = self.registry.get(driver_type)
+        try:
+            result = driver.discover_host_key(configuration, credentials)
+        except DriverOperationError as exc:
+            with self.database.session() as session:
+                session.add(
+                    _audit(
+                        actor_id=actor_id,
+                        action="device.host_key_discovery_tested",
+                        object_type="device_candidate",
+                        object_id="pending",
+                        changes={"status": "unhealthy", "reason": str(exc)},
+                        client_ip=client_ip,
+                    )
+                )
+                session.commit()
+            raise
+        with self.database.session() as session:
+            session.add(
+                _audit(
+                    actor_id=actor_id,
+                    action="device.host_key_discovery_tested",
+                    object_type="device_candidate",
+                    object_id="pending",
+                    changes={
+                        "status": result.status,
+                        "reason": result.reason,
+                        "algorithm": result.algorithm,
+                        "fingerprint": result.fingerprint,
+                    },
+                    client_ip=client_ip,
+                )
+            )
+            session.commit()
+        return {
+            "status": result.status,
+            "latency_ms": result.latency_ms,
+            "reason": result.reason,
+            "host_key": result.host_key,
+            "fingerprint": result.fingerprint,
+            "algorithm": result.algorithm,
+            "bits": result.bits,
+        }
+
     def update(
         self,
         device_id: uuid.UUID,

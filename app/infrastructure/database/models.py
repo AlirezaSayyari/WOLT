@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -34,7 +35,7 @@ class User(TimestampMixin, Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -68,6 +69,66 @@ class RecoveryCode(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UserInvitation(TimestampMixin, Base):
+    __tablename__ = "user_invitations"
+    __table_args__ = (
+        Index("ix_user_invitations_token_hash", "token_hash", unique=True),
+        Index("ix_user_invitations_expires_at", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    invited_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PasswordResetToken(TimestampMixin, Base):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        Index("ix_password_reset_tokens_token_hash", "token_hash", unique=True),
+        Index("ix_password_reset_tokens_expires_at", "expires_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SmtpSettings(Base):
+    __tablename__ = "smtp_settings"
+    __table_args__ = (
+        CheckConstraint("port BETWEEN 1 AND 65535", name="ck_smtp_settings_port"),
+        CheckConstraint(
+            "security IN ('starttls', 'tls', 'none')",
+            name="ck_smtp_settings_security",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    host: Mapped[str] = mapped_column(String(255), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False)
+    security: Mapped[str] = mapped_column(String(16), nullable=False)
+    from_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    from_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    public_base_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    encrypted_credentials: Mapped[str] = mapped_column(Text, nullable=False)
+    key_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Device(TimestampMixin, Base):
@@ -172,6 +233,20 @@ class AuditEvent(Base):
 
 class ApplicationSettings(Base):
     __tablename__ = "application_settings"
+    __table_args__ = (
+        CheckConstraint(
+            "udp_port_start BETWEEN 1024 AND 65535",
+            name="ck_application_settings_udp_start",
+        ),
+        CheckConstraint(
+            "udp_port_end BETWEEN udp_port_start AND 65535",
+            name="ck_application_settings_udp_end",
+        ),
+        CheckConstraint(
+            "udp_port_end - udp_port_start + 1 <= 100",
+            name="ck_application_settings_udp_width",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     udp_port_start: Mapped[int] = mapped_column(Integer, nullable=False, default=40000)

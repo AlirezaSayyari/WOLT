@@ -25,9 +25,25 @@ LOGGER = logging.getLogger("wolt.retention")
 RETENTION_LOCK_KEY = 884_705_001
 
 
+class UdpRangeOutsidePublishedError(RuntimeError):
+    detail = "udp_range_outside_published_range"
+
+
+class UdpRangeExcludesListenersError(RuntimeError):
+    detail = "udp_range_excludes_existing_listeners"
+
+
 class ObservabilityService:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        published_udp_start: int = 40000,
+        published_udp_end: int = 40099,
+    ) -> None:
         self.database = database
+        self.published_udp_start = published_udp_start
+        self.published_udp_end = published_udp_end
 
     def wake_events(
         self,
@@ -249,7 +265,10 @@ class ObservabilityService:
             settings = session.get(ApplicationSettings, 1)
             if settings is None:
                 raise ResourceNotFoundError
-            return self._settings_view(settings)
+            used_ports = session.scalar(
+                select(func.count()).select_from(ListenerMapping)
+            ) or 0
+            return self._settings_view(settings, used_ports)
 
     def update_retention(
         self,
@@ -282,13 +301,82 @@ class ObservabilityService:
                 )
             )
             session.commit()
-            return self._settings_view(settings)
+            used_ports = session.scalar(
+                select(func.count()).select_from(ListenerMapping)
+            ) or 0
+            return self._settings_view(settings, used_ports)
 
-    @staticmethod
-    def _settings_view(settings: ApplicationSettings) -> dict[str, Any]:
+    def update_udp_range(
+        self,
+        *,
+        udp_start: int,
+        udp_end: int,
+        actor_id: uuid.UUID,
+        client_ip: str,
+    ) -> dict[str, Any]:
+        if (
+            udp_start < self.published_udp_start
+            or udp_end > self.published_udp_end
+        ):
+            raise UdpRangeOutsidePublishedError
+        with self.database.session() as session:
+            settings = session.scalar(
+                select(ApplicationSettings)
+                .where(ApplicationSettings.id == 1)
+                .with_for_update()
+            )
+            if settings is None:
+                raise ResourceNotFoundError
+            outside_count = session.scalar(
+                select(func.count())
+                .select_from(ListenerMapping)
+                .where(
+                    or_(
+                        ListenerMapping.udp_port < udp_start,
+                        ListenerMapping.udp_port > udp_end,
+                    )
+                )
+            ) or 0
+            if outside_count:
+                raise UdpRangeExcludesListenersError
+            previous = {
+                "udp_port_start": settings.udp_port_start,
+                "udp_port_end": settings.udp_port_end,
+            }
+            settings.udp_port_start = udp_start
+            settings.udp_port_end = udp_end
+            session.add(
+                _audit(
+                    actor_id=actor_id,
+                    action="settings.udp_range_updated",
+                    object_type="application_settings",
+                    object_id="1",
+                    changes={
+                        "previous": previous,
+                        "current": {
+                            "udp_port_start": udp_start,
+                            "udp_port_end": udp_end,
+                        },
+                    },
+                    client_ip=client_ip,
+                )
+            )
+            session.commit()
+            used_ports = session.scalar(
+                select(func.count()).select_from(ListenerMapping)
+            ) or 0
+            return self._settings_view(settings, used_ports)
+
+    def _settings_view(
+        self, settings: ApplicationSettings, used_ports: int
+    ) -> dict[str, Any]:
         return {
             "udp_port_start": settings.udp_port_start,
             "udp_port_end": settings.udp_port_end,
+            "udp_published_start": self.published_udp_start,
+            "udp_published_end": self.published_udp_end,
+            "udp_port_capacity": settings.udp_port_end - settings.udp_port_start + 1,
+            "udp_ports_used": used_ports,
             "rate_limit_seconds": settings.rate_limit_seconds,
             "wake_event_retention_days": settings.wake_event_retention_days,
             "audit_event_retention_days": settings.audit_event_retention_days,

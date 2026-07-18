@@ -1,4 +1,5 @@
 import os
+import re
 import socket
 import time
 from datetime import UTC, datetime, timedelta
@@ -10,7 +11,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.infrastructure.database import Database
-from app.infrastructure.database.models import DeviceCredential, WakeEvent
+from app.infrastructure.database.models import DeviceCredential, SmtpSettings, WakeEvent
+from app.infrastructure.email import SmtpMailer
+from app.drivers.base import HostKeyDiscoveryResult
+from app.drivers.fortigate_ssh import FortiGateSSHDriver
 from app.parser import build_magic_packet
 from app.web.application import create_app
 from app.web.config import WebSettings
@@ -22,7 +26,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_owner_session_login_logout_and_offline_recovery(tmp_path: Path) -> None:
+def test_owner_session_login_logout_and_offline_recovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert DATABASE_URL is not None
     database = Database(DATABASE_URL)
     settings = WebSettings(
@@ -33,8 +39,22 @@ def test_owner_session_login_logout_and_offline_recovery(tmp_path: Path) -> None
         master_key="33" * 32,
         session_hours=12,
     )
+    delivered: list[dict[str, str]] = []
+
+    def capture_mail(
+        _self: SmtpMailer, _configuration: object, *, recipient: str,
+        subject: str, text: str,
+    ) -> None:
+        delivered.append({"recipient": recipient, "subject": subject, "text": text})
+
+    monkeypatch.setattr(SmtpMailer, "send", capture_mail)
 
     with TestClient(create_app(settings, database)) as client:
+        assert client.post(
+            "/api/v1/devices/discover-host-key",
+            json={"configuration": {}, "credentials": {}},
+        ).status_code == 401
+        assert client.get("/api/v1/host/status").status_code == 401
         setup = client.post(
             "/api/v1/setup/owner",
             json={
@@ -84,6 +104,155 @@ def test_owner_session_login_logout_and_offline_recovery(tmp_path: Path) -> None
             "/api/v1/auth/login",
             json={"identifier": "owner", "password": "replacement-integration-password"},
         ).status_code == 200
+        owner_session = client.cookies.get("wolt_session")
+        unavailable_agent = client.get("/api/v1/host/status")
+        assert unavailable_agent.status_code == 503
+        assert unavailable_agent.json()["detail"] == "host_agent_not_configured"
+
+        smtp_secret = "integration-smtp-secret"
+        saved_smtp = client.put(
+            "/api/v1/smtp",
+            json={
+                "host": "smtp.example.com", "port": 587, "security": "starttls",
+                "from_email": "wolt@example.com", "from_name": "WOLT",
+                "public_base_url": "https://wolt.example.com", "username": "mailer",
+                "password": smtp_secret, "enabled": True,
+            },
+        )
+        assert saved_smtp.status_code == 200
+        assert saved_smtp.json()["password_configured"] is True
+        assert smtp_secret not in saved_smtp.text
+        with database.session() as db_session:
+            encrypted_smtp = db_session.get(SmtpSettings, 1)
+            assert encrypted_smtp is not None
+            assert smtp_secret not in encrypted_smtp.encrypted_credentials
+
+        invitation = client.post(
+            "/api/v1/users/invitations",
+            json={"username": "phase6admin", "email": "admin@example.com", "role": "administrator"},
+        )
+        assert invitation.status_code == 201
+        invite_token = re.search(r"token=([^\s]+)", delivered[-1]["text"])
+        assert invite_token is not None
+        pending_users = client.get("/api/v1/users")
+        assert pending_users.status_code == 200
+        assert next(item for item in pending_users.json() if item["username"] == "phase6admin")["status"] == "pending"
+        assert client.post(
+            "/api/v1/auth/accept-invitation",
+            json={"token": invite_token.group(1), "password": "admin-integration-password"},
+        ).status_code == 204
+        assert client.post(
+            "/api/v1/auth/accept-invitation",
+            json={"token": invite_token.group(1), "password": "admin-integration-password"},
+        ).status_code == 400
+
+        client.cookies.clear()
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"identifier": "phase6admin", "password": "admin-integration-password"},
+        ).status_code == 200
+        assert client.get("/api/v1/users").status_code == 403
+        assert client.get("/api/v1/host/status").status_code == 403
+        assert client.get("/api/v1/settings").status_code == 200
+        reset_request = client.post(
+            "/api/v1/auth/password-reset/request", json={"email": "admin@example.com"}
+        )
+        assert reset_request.status_code == 202
+        reset_token = re.search(r"token=([^\s]+)", delivered[-1]["text"])
+        assert reset_token is not None
+        assert client.post(
+            "/api/v1/auth/password-reset/complete",
+            json={"token": reset_token.group(1), "password": "new-admin-integration-password"},
+        ).status_code == 204
+        assert client.get("/api/v1/auth/me").status_code == 401
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"identifier": "admin@example.com", "password": "new-admin-integration-password"},
+        ).status_code == 200
+        assert client.post("/api/v1/auth/logout").status_code == 204
+        client.cookies.set("wolt_session", owner_session)
+        assert client.get("/api/v1/auth/me").json()["role"] == "owner"
+        owner_record = next(item for item in client.get("/api/v1/users").json() if item["role"] == "owner")
+        assert client.put(
+            f"/api/v1/users/{owner_record['id']}",
+            json={"role": "owner", "enabled": False},
+        ).status_code == 409
+
+        operator_invitation = client.post(
+            "/api/v1/users/invitations",
+            json={"username": "phase6operator", "email": "operator@example.com", "role": "operator"},
+        )
+        assert operator_invitation.status_code == 201
+        operator_token = re.search(r"token=([^\s]+)", delivered[-1]["text"])
+        assert operator_token is not None
+        assert client.post(
+            "/api/v1/auth/accept-invitation",
+            json={"token": operator_token.group(1), "password": "operator-integration-password"},
+        ).status_code == 204
+        client.cookies.clear()
+        assert client.post(
+            "/api/v1/auth/login",
+            json={"identifier": "phase6operator", "password": "operator-integration-password"},
+        ).status_code == 200
+        assert client.get("/api/v1/events").status_code == 200
+        assert client.get("/api/v1/engine").status_code == 200
+        assert client.get("/api/v1/audit").status_code == 403
+        assert client.get("/api/v1/settings").status_code == 403
+        assert client.post("/api/v1/devices", json={}).status_code == 403
+        client.cookies.clear()
+        client.cookies.set("wolt_session", owner_session)
+
+        initial_settings = client.get("/api/v1/settings")
+        assert initial_settings.status_code == 200
+        assert initial_settings.json()["udp_published_start"] == 40000
+        assert initial_settings.json()["udp_published_end"] == 40099
+        assert client.put(
+            "/api/v1/settings/udp-range",
+            json={"udp_port_start": 39999, "udp_port_end": 40020},
+        ).status_code == 422
+        changed_range = client.put(
+            "/api/v1/settings/udp-range",
+            json={"udp_port_start": 40010, "udp_port_end": 40020},
+        )
+        assert changed_range.status_code == 200
+        assert changed_range.json()["udp_port_capacity"] == 11
+
+        discovered_key = paramiko.RSAKey.generate(1024)
+        discovered_line = (
+            f"127.0.0.1 {discovered_key.get_name()} {discovered_key.get_base64()}"
+        )
+        monkeypatch.setattr(
+            FortiGateSSHDriver,
+            "discover_host_key",
+            lambda *_args, **_kwargs: HostKeyDiscoveryResult(
+                status="healthy",
+                latency_ms=12,
+                reason=None,
+                host_key=discovered_line,
+                fingerprint="SHA256:test-fingerprint",
+                algorithm=discovered_key.get_name(),
+                bits=1024,
+            ),
+        )
+        discovery = client.post(
+            "/api/v1/devices/discover-host-key",
+            json={
+                "driver_type": "fortigate_ssh",
+                "configuration": {"host": "127.0.0.1", "port": 22},
+                "credentials": {"username": "wol-service", "password": "transient-secret"},
+            },
+        )
+        assert discovery.status_code == 200
+        assert discovery.json()["host_key"] == discovered_line
+        assert discovery.json()["fingerprint"] == "SHA256:test-fingerprint"
+        assert "transient-secret" not in discovery.text
+        discovery_audit = client.get(
+            "/api/v1/audit",
+            params={"query": "device.host_key_discovery_tested"},
+        )
+        assert discovery_audit.status_code == 200
+        assert discovery_audit.json()["total"] == 1
+        assert "transient-secret" not in discovery_audit.text
 
         host_key = paramiko.RSAKey.generate(1024)
         host_key_line = (
@@ -134,7 +303,11 @@ def test_owner_session_login_logout_and_offline_recovery(tmp_path: Path) -> None
         )
         assert created_listener.status_code == 201
         listener = created_listener.json()
-        assert listener["udp_port"] == 40000
+        assert listener["udp_port"] == 40010
+        assert client.put(
+            "/api/v1/settings/udp-range",
+            json={"udp_port_start": 40011, "udp_port_end": 40020},
+        ).status_code == 409
 
         resumed = client.post("/api/v1/engine/resume")
         assert resumed.status_code == 200

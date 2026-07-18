@@ -5,7 +5,11 @@ services:
     build:
       context: .
       target: production
-    image: ${WOLT_IMAGE:-wolt:phase5}
+      args:
+        WOLT_VERSION: ${WOLT_VERSION:-v1.0.0-dev}
+        WOLT_COMMIT_SHA: ${WOLT_COMMIT_SHA:-local}
+        WOLT_BUILD_DATE: ${WOLT_BUILD_DATE:-unknown}
+    image: ${WOLT_IMAGE:-wolt:dev}
     restart: unless-stopped
     command: ["python", "-m", "app.web"]
     environment:
@@ -22,9 +26,11 @@ services:
       WOLT_MASTER_KEY: ${WOLT_MASTER_KEY:-}
       WOLT_SESSION_SECURE: ${WOLT_SESSION_SECURE:-false}
       WOLT_SESSION_HOURS: ${WOLT_SESSION_HOURS:-12}
+      WOLT_UDP_PUBLISHED_START: ${WOLT_UDP_PUBLISHED_START:-40000}
+      WOLT_UDP_PUBLISHED_END: ${WOLT_UDP_PUBLISHED_END:-40099}
     ports:
       - "${WOLT_WEB_PORT:-8080}:${WOLT_WEB_PORT:-8080}/tcp"
-      - "40000-40099:40000-40099/udp"
+      - "${WOLT_UDP_PUBLISHED_START:-40000}-${WOLT_UDP_PUBLISHED_END:-40099}:${WOLT_UDP_PUBLISHED_START:-40000}-${WOLT_UDP_PUBLISHED_END:-40099}/udp"
     depends_on:
       postgres:
         condition: service_healthy

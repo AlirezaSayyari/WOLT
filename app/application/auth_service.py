@@ -256,7 +256,9 @@ class AuthService:
                 self._public_user(user), token, expires_at, replacement_code
             )
 
-    def _verify(self, stored_hash: str, candidate: str) -> bool:
+    def _verify(self, stored_hash: str | None, candidate: str) -> bool:
+        if not stored_hash:
+            return False
         try:
             return self.password_hasher.verify(stored_hash, candidate)
         except (InvalidHashError, VerifyMismatchError):

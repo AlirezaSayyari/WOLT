@@ -23,6 +23,11 @@ def test_web_settings_parse_explicit_values() -> None:
             "WOLT_MASTER_KEY": "ab" * 32,
             "WOLT_SESSION_SECURE": "true",
             "WOLT_SESSION_HOURS": "24",
+            "WOLT_UDP_PUBLISHED_START": "41000",
+            "WOLT_UDP_PUBLISHED_END": "41049",
+            "WOLT_VERSION": "v0.2.0-test",
+            "WOLT_COMMIT_SHA": "abc123",
+            "WOLT_BUILD_DATE": "2026-07-18T12:00:00Z",
         }
     )
 
@@ -35,6 +40,11 @@ def test_web_settings_parse_explicit_values() -> None:
     assert settings.master_key == "ab" * 32
     assert settings.session_secure is True
     assert settings.session_hours == 24
+    assert settings.udp_published_start == 41000
+    assert settings.udp_published_end == 41049
+    assert settings.version == "v0.2.0-test"
+    assert settings.commit_sha == "abc123"
+    assert settings.build_date == "2026-07-18T12:00:00Z"
 
 
 @pytest.mark.parametrize("port", ["0", "65536", "not-a-port"])
@@ -83,5 +93,30 @@ def test_web_settings_reject_invalid_master_key(key: str) -> None:
             {
                 "DATABASE_URL": "postgresql+psycopg://wolt:secret@postgres/wolt",
                 "WOLT_MASTER_KEY": key,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [("1023", "1100"), ("65000", "65536"), ("41000", "40000"), ("40000", "40100")],
+)
+def test_web_settings_reject_invalid_published_udp_range(start: str, end: str) -> None:
+    with pytest.raises(WebConfigError, match="UDP|published UDP"):
+        WebSettings.from_env(
+            {
+                "DATABASE_URL": "postgresql+psycopg://wolt:secret@postgres/wolt",
+                "WOLT_UDP_PUBLISHED_START": start,
+                "WOLT_UDP_PUBLISHED_END": end,
+            }
+        )
+
+
+def test_web_settings_rejects_short_host_agent_token() -> None:
+    with pytest.raises(WebConfigError, match="WOLT_HOST_AGENT_TOKEN"):
+        WebSettings.from_env(
+            {
+                "WOLT_DB_PASSWORD": "database-password",
+                "WOLT_HOST_AGENT_TOKEN": "short",
             }
         )

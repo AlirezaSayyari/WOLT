@@ -38,6 +38,16 @@ def _database_port(value: str) -> int:
     return port
 
 
+def _udp_port(value: str, name: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as exc:
+        raise WebConfigError(f"{name} must be an integer") from exc
+    if not 1024 <= port <= 65535:
+        raise WebConfigError(f"{name} must be between 1024 and 65535")
+    return port
+
+
 def _session_hours(value: str) -> int:
     try:
         hours = int(value)
@@ -60,6 +70,12 @@ def _master_key(value: str) -> str:
     return value
 
 
+def _host_agent_token(value: str) -> str:
+    if value and len(value) < 32:
+        raise WebConfigError("WOLT_HOST_AGENT_TOKEN must contain at least 32 characters")
+    return value
+
+
 @dataclass(frozen=True)
 class WebSettings:
     database_url: str
@@ -72,6 +88,13 @@ class WebSettings:
     master_key: str = ""
     session_secure: bool = False
     session_hours: int = 12
+    udp_published_start: int = 40000
+    udp_published_end: int = 40099
+    version: str = "v1.0.0-dev"
+    commit_sha: str = "local"
+    build_date: str = "unknown"
+    host_agent_socket: Path = Path("/run/wolt-agent/agent.sock")
+    host_agent_token: str = ""
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> "WebSettings":
@@ -93,6 +116,20 @@ class WebSettings:
                 port=_database_port(env.get("WOLT_DB_PORT", "5432")),
                 database=env.get("WOLT_DB_NAME", "wolt"),
             ).render_as_string(hide_password=False)
+        udp_start = _udp_port(
+            env.get("WOLT_UDP_PUBLISHED_START", "40000"),
+            "WOLT_UDP_PUBLISHED_START",
+        )
+        udp_end = _udp_port(
+            env.get("WOLT_UDP_PUBLISHED_END", "40099"),
+            "WOLT_UDP_PUBLISHED_END",
+        )
+        if udp_start > udp_end:
+            raise WebConfigError(
+                "WOLT_UDP_PUBLISHED_START must not exceed WOLT_UDP_PUBLISHED_END"
+            )
+        if udp_end - udp_start + 1 > 100:
+            raise WebConfigError("The published UDP range cannot exceed 100 ports")
         return cls(
             database_url=database_url,
             host=env.get("WOLT_WEB_HOST", "0.0.0.0").strip() or "0.0.0.0",
@@ -106,4 +143,11 @@ class WebSettings:
                 env.get("WOLT_SESSION_SECURE", "false"), "WOLT_SESSION_SECURE"
             ),
             session_hours=_session_hours(env.get("WOLT_SESSION_HOURS", "12")),
+            udp_published_start=udp_start,
+            udp_published_end=udp_end,
+            version=env.get("WOLT_VERSION", "v1.0.0-dev").strip() or "v1.0.0-dev",
+            commit_sha=env.get("WOLT_COMMIT_SHA", "local").strip() or "local",
+            build_date=env.get("WOLT_BUILD_DATE", "unknown").strip() or "unknown",
+            host_agent_socket=Path(env.get("WOLT_HOST_AGENT_SOCKET", "/run/wolt-agent/agent.sock")),
+            host_agent_token=_host_agent_token(env.get("WOLT_HOST_AGENT_TOKEN", "")),
         )

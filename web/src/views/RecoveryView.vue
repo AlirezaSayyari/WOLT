@@ -10,6 +10,8 @@ defineProps<{ theme: 'light' | 'dark' }>()
 const emit = defineEmits<{ toggleTheme: [] }>()
 const router = useRouter(); const email = ref(''); const code = ref(''); const password = ref(''); const confirm = ref('')
 const error = ref(''); const submitting = ref(false); const replacement = ref(''); const copied = ref(false)
+const mode = ref<'email' | 'offline'>('email'); const emailAccepted = ref(false)
+async function requestEmailReset() { error.value = ''; submitting.value = true; try { await api.requestPasswordReset(email.value); emailAccepted.value = true } catch (reason) { error.value = readableError(reason) } finally { submitting.value = false } }
 async function submit() {
   error.value = ''; if (password.value !== confirm.value) { error.value = 'Passwords do not match.'; return }
   submitting.value = true
@@ -20,8 +22,16 @@ async function copyCode() { await navigator.clipboard.writeText(replacement.valu
 </script>
 
 <template>
-  <AuthLayout :theme="theme" eyebrow="OFFLINE RECOVERY" :title="replacement ? 'Recovery complete' : 'Reset Owner access'" :description="replacement ? 'Your old recovery code and all previous sessions are now invalid.' : 'Use the recovery code shown during first-run setup.'" @toggle-theme="emit('toggleTheme')">
-    <form v-if="!replacement" class="auth-form" @submit.prevent="submit">
+  <AuthLayout :theme="theme" eyebrow="ACCOUNT RECOVERY" :title="replacement ? 'Recovery complete' : 'Reset your access'" :description="replacement ? 'Your old recovery code and all previous sessions are now invalid.' : 'Use email recovery or the Owner offline recovery code.'" @toggle-theme="emit('toggleTheme')">
+    <div v-if="!replacement" class="recovery-mode"><button :class="{ active: mode === 'email' }" type="button" @click="mode = 'email'">Email link</button><button :class="{ active: mode === 'offline' }" type="button" @click="mode = 'offline'">Owner recovery code</button></div>
+    <div v-if="mode === 'email' && emailAccepted" class="recovery-result"><Check :size="30" /><p>If an eligible account and SMTP configuration exist, a reset link has been sent. Check your inbox.</p><RouterLink class="form-link" to="/login"><ArrowLeft :size="14" /> Back to sign in</RouterLink></div>
+    <form v-else-if="mode === 'email'" class="auth-form" @submit.prevent="requestEmailReset">
+      <label>Account email<input v-model.trim="email" type="email" autocomplete="email" required /></label>
+      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+      <button class="primary-button full-button" :disabled="submitting" type="submit"><LoaderCircle v-if="submitting" class="spin" :size="16" /><template v-else>Send reset link <ArrowRight :size="16" /></template></button>
+      <RouterLink class="form-link" to="/login"><ArrowLeft :size="14" /> Back to sign in</RouterLink>
+    </form>
+    <form v-else-if="!replacement" class="auth-form" @submit.prevent="submit">
       <label>Owner email<input v-model.trim="email" type="email" autocomplete="email" required /></label>
       <label>Recovery code<input v-model.trim="code" class="mono-input" autocomplete="off" minlength="20" required /></label>
       <label>New password<input v-model="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required /></label>

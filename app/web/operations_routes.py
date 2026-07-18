@@ -18,7 +18,7 @@ from app.application.operations_service import (
     StaleVersionError,
 )
 from app.drivers import DriverRegistry
-from app.drivers.base import DriverValidationError
+from app.drivers.base import DriverOperationError, DriverValidationError
 from app.infrastructure.database.connection import Database
 from app.web.auth_routes import SESSION_COOKIE
 from app.web.config import WebSettings
@@ -37,6 +37,12 @@ class DeviceUpdateRequest(BaseModel):
     configuration: dict[str, Any]
     credentials: dict[str, Any] | None = None
     enabled: bool = True
+
+
+class DeviceDiscoveryRequest(BaseModel):
+    driver_type: str = Field(default="fortigate_ssh", min_length=1, max_length=80)
+    configuration: dict[str, Any]
+    credentials: dict[str, Any]
 
 
 class ListenerCreateRequest(BaseModel):
@@ -73,6 +79,8 @@ def _translate_error(exc: Exception) -> None:
         raise HTTPException(status_code=503, detail=exc.detail) from exc
     if isinstance(exc, DriverValidationError):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if isinstance(exc, DriverOperationError):
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     if isinstance(exc, OperationsError):
         raise HTTPException(status_code=400, detail=exc.detail) from exc
     raise exc
@@ -101,6 +109,11 @@ def create_operations_router(
             raise HTTPException(status_code=401, detail="authentication_required")
         return user
 
+    def require_admin(user: AuthenticatedUser = Depends(require_user)) -> AuthenticatedUser:
+        if user.role not in {"owner", "administrator"}:
+            raise HTTPException(status_code=403, detail="insufficient_permissions")
+        return user
+
     @router.get("/drivers", tags=["devices"])
     def driver_schemas(_user: AuthenticatedUser = Depends(require_user)) -> list[dict[str, Any]]:
         return registry.schemas()
@@ -113,7 +126,7 @@ def create_operations_router(
     def create_device(
         payload: DeviceCreateRequest,
         request: Request,
-        user: AuthenticatedUser = Depends(require_user),
+        user: AuthenticatedUser = Depends(require_admin),
     ) -> dict[str, Any]:
         try:
             result = devices.create(
@@ -130,12 +143,29 @@ def create_operations_router(
         except Exception as exc:
             _translate_error(exc)
 
+    @router.post("/devices/discover-host-key", tags=["devices"])
+    def discover_device_host_key(
+        payload: DeviceDiscoveryRequest,
+        request: Request,
+        user: AuthenticatedUser = Depends(require_admin),
+    ) -> dict[str, Any]:
+        try:
+            return devices.discover_host_key(
+                driver_type=payload.driver_type,
+                configuration=payload.configuration,
+                credentials=payload.credentials,
+                actor_id=user.id,
+                client_ip=_client_ip(request),
+            )
+        except Exception as exc:
+            _translate_error(exc)
+
     @router.put("/devices/{device_id}", tags=["devices"])
     def update_device(
         device_id: uuid.UUID,
         payload: DeviceUpdateRequest,
         request: Request,
-        user: AuthenticatedUser = Depends(require_user),
+        user: AuthenticatedUser = Depends(require_admin),
     ) -> dict[str, Any]:
         try:
             result = devices.update(
@@ -156,7 +186,7 @@ def create_operations_router(
     def delete_device(
         device_id: uuid.UUID,
         request: Request,
-        user: AuthenticatedUser = Depends(require_user),
+        user: AuthenticatedUser = Depends(require_admin),
     ) -> None:
         try:
             devices.delete(device_id, actor_id=user.id, client_ip=_client_ip(request))
@@ -184,7 +214,7 @@ def create_operations_router(
     def create_listener(
         payload: ListenerCreateRequest,
         request: Request,
-        user: AuthenticatedUser = Depends(require_user),
+        user: AuthenticatedUser = Depends(require_admin),
     ) -> dict[str, Any]:
         try:
             result = listeners.create(
@@ -208,7 +238,7 @@ def create_operations_router(
         listener_id: uuid.UUID,
         payload: ListenerUpdateRequest,
         request: Request,
-        user: AuthenticatedUser = Depends(require_user),
+        user: AuthenticatedUser = Depends(require_admin),
     ) -> dict[str, Any]:
         try:
             result = listeners.update(
@@ -233,7 +263,7 @@ def create_operations_router(
     def delete_listener(
         listener_id: uuid.UUID,
         request: Request,
-        user: AuthenticatedUser = Depends(require_user),
+        user: AuthenticatedUser = Depends(require_admin),
     ) -> None:
         try:
             listeners.delete(

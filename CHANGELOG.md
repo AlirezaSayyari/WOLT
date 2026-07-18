@@ -2,7 +2,7 @@
 
 All notable changes follow Keep a Changelog and semantic versioning.
 
-## [Unreleased]
+## [1.0.0] - 2026-07-18
 
 ### Added
 
@@ -21,12 +21,27 @@ All notable changes follow Keep a Changelog and semantic versioning.
 - Real 24-hour dashboard metrics, outcome series, device health, and recent event activity.
 - Searchable administrative audit trail containing secret-safe change records.
 - Configurable event/audit retention with PostgreSQL-locked hourly and on-demand cleanup.
+- Phase 5.1 active UDP allocation controls constrained by the Docker-published envelope.
+- Image build metadata, database revision visibility, route-aware page titles, and a WOLT favicon.
+- FortiGate least-privilege permission guidance in device management.
+- Authenticated server-side SSH host-key discovery with fingerprint confirmation and pre-create credential testing.
+- Owner-controlled users and sessions with Administrator/Operator role enforcement.
+- Encrypted SMTP configuration, delivery testing, email invitations, and email password recovery.
+- Restricted Host Agent with Owner-only UFW, published-port, upgrade, and rollback operations.
+- Keyless Cosign release signing and digest-pinned upgrade verification.
+- Explicit one-Device and one-restricted-service-account-per-VDOM guidance for multi-VDOM
+  FortiGate deployments.
+- Clear port-to-interface setup contract across PAM, WOLT, SSH, and native UDP/9 delivery.
+- FortiOS 7.2, 7.4, and 7.6 compatibility boundary with a safe-shaped account verification command.
 
 ### Changed
 
 - The unified image now contains web assets and database tooling while retaining headless mode as its default command.
 - CI validates the Vue production build, Python tests, production image, and PostgreSQL migration drift.
 - CI exercises the complete authentication lifecycle against PostgreSQL.
+- Increased table, form, navigation, and helper-text sizing and spacing for operational readability.
+- Invitation and password-reset tokens are hashed, single-use, expiring, and secret-safe in audit history.
+- The authenticated web stack replaces the legacy file-based headless deployment as the supported installation path.
 
 ### Fixed
 

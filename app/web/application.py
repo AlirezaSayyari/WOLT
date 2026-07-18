@@ -25,16 +25,19 @@ from app.web.auth_routes import create_auth_router
 from app.web.config import WebSettings
 from app.web.operations_routes import create_operations_router
 from app.web.observability_routes import create_observability_router
+from app.application.identity_service import IdentityService
+from app.web.identity_routes import create_identity_router
+from app.infrastructure.host_agent import HostAgentClient
+from app.web.host_routes import create_host_router
 
 
 API_PREFIX = "/api/v1"
-VERSION = "0.2.0-dev"
-
-
 class DatabaseHealth(Protocol):
     def is_ready(self) -> bool: ...
 
     def schema_is_ready(self) -> bool: ...
+
+    def schema_revision(self) -> str | None: ...
 
     def owner_exists(self) -> bool: ...
 
@@ -46,7 +49,7 @@ def _api_router(database: DatabaseHealth, settings: WebSettings) -> APIRouter:
 
     @router.get("/health/live", tags=["health"])
     def liveness() -> dict[str, str]:
-        return {"status": "ok", "service": "wolt-web", "version": VERSION}
+        return {"status": "ok", "service": "wolt-web", "version": settings.version}
 
     @router.get("/health/ready", tags=["health"])
     def readiness() -> Response:
@@ -79,9 +82,12 @@ def _api_router(database: DatabaseHealth, settings: WebSettings) -> APIRouter:
     def system_info() -> dict[str, str]:
         return {
             "name": "WOLT",
-            "version": VERSION,
+            "version": settings.version,
             "environment": settings.environment,
             "api_version": "v1",
+            "commit_sha": settings.commit_sha,
+            "build_date": settings.build_date,
+            "schema_revision": database.schema_revision() or "unavailable",
         }
 
     return router
@@ -107,9 +113,14 @@ def create_app(
         listener_service = ListenerService(resolved_database, registry)
         engine_service = EngineStateService(resolved_database)
         runtime = EngineRuntime(resolved_database, device_service, registry)
-        observability_service = ObservabilityService(resolved_database)
+        observability_service = ObservabilityService(
+            resolved_database,
+            published_udp_start=resolved_settings.udp_published_start,
+            published_udp_end=resolved_settings.udp_published_end,
+        )
         retention_service = RetentionService(resolved_database)
         retention_worker = RetentionWorker(retention_service)
+        identity_service = IdentityService(resolved_database, cipher)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -129,7 +140,7 @@ def create_app(
     docs_url = "/api/docs" if resolved_settings.environment != "production" else None
     app = FastAPI(
         title="WOLT Management API",
-        version=VERSION,
+        version=resolved_settings.version,
         docs_url=docs_url,
         redoc_url=None,
         openapi_url="/api/openapi.json" if docs_url else None,
@@ -140,6 +151,23 @@ def create_app(
         create_auth_router(cast(Database, resolved_database), resolved_settings)
     )
     if runtime is not None:
+        app.include_router(
+            create_identity_router(
+                service=identity_service,
+                database=resolved_database,
+                settings=resolved_settings,
+            )
+        )
+        app.include_router(
+            create_host_router(
+                database=resolved_database,
+                settings=resolved_settings,
+                client=HostAgentClient(
+                    resolved_settings.host_agent_socket,
+                    resolved_settings.host_agent_token,
+                ),
+            )
+        )
         app.include_router(
             create_operations_router(
                 database=resolved_database,

@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import ipaddress
 import re
 import socket
@@ -11,6 +13,7 @@ from app.drivers.base import (
     ConnectionTestResult,
     DriverOperationError,
     DriverValidationError,
+    HostKeyDiscoveryResult,
 )
 from app.fortigate import build_wol_command
 
@@ -18,12 +21,19 @@ from app.fortigate import build_wol_command
 HOST_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 INTERFACE_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 ERROR_MARKERS = ("command fail", "parse error", "unknown action", "error", "failed")
-
-
 class FortiGateSSHDriver:
     type_key = "fortigate_ssh"
 
     def validate_configuration(self, configuration: dict[str, Any]) -> dict[str, Any]:
+        target = self._validate_target(configuration)
+        host_key = str(configuration.get("host_key", "")).strip()
+        entry = HostKeyEntry.from_line(host_key)
+        if entry is None or entry.key is None:
+            raise DriverValidationError("invalid_or_missing_host_key")
+        return {**target, "host_key": host_key}
+
+    @staticmethod
+    def _validate_target(configuration: dict[str, Any]) -> dict[str, Any]:
         host = str(configuration.get("host", "")).strip()
         try:
             ipaddress.ip_address(host)
@@ -40,14 +50,9 @@ class FortiGateSSHDriver:
             raise DriverValidationError("invalid_device_port")
         if not 0.5 <= connect_timeout <= 60 or not 0.5 <= command_timeout <= 120:
             raise DriverValidationError("invalid_device_timeout")
-        host_key = str(configuration.get("host_key", "")).strip()
-        entry = HostKeyEntry.from_line(host_key)
-        if entry is None or entry.key is None:
-            raise DriverValidationError("invalid_or_missing_host_key")
         return {
             "host": host,
             "port": port,
-            "host_key": host_key,
             "connect_timeout": connect_timeout,
             "command_timeout": command_timeout,
         }
@@ -83,6 +88,57 @@ class FortiGateSSHDriver:
         return ConnectionTestResult(
             status="healthy", latency_ms=max(1, round((time.monotonic() - started) * 1000))
         )
+
+    def discover_host_key(
+        self, configuration: dict[str, Any], credentials: dict[str, Any]
+    ) -> HostKeyDiscoveryResult:
+        config = self._validate_target(configuration)
+        secret = self.validate_credentials(credentials)
+        host = str(config["host"])
+        port = int(config["port"])
+        timeout = float(config["connect_timeout"])
+        started = time.monotonic()
+        sock: socket.socket | None = None
+        transport: paramiko.Transport | None = None
+        try:
+            sock = socket.create_connection((host, port), timeout=timeout)
+            transport = paramiko.Transport(sock)
+            transport.banner_timeout = timeout
+            transport.start_client(timeout=timeout)
+            key = transport.get_remote_server_key()
+            lookup_name = host if port == 22 else f"[{host}]:{port}"
+            host_key = f"{lookup_name} {key.get_name()} {key.get_base64()}"
+            fingerprint = "SHA256:" + base64.b64encode(
+                hashlib.sha256(key.asbytes()).digest()
+            ).decode("ascii").rstrip("=")
+            try:
+                transport.auth_password(
+                    username=secret["username"],
+                    password=secret["password"],
+                    fallback=False,
+                )
+                authenticated = transport.is_authenticated()
+                reason = None if authenticated else "ssh_authentication_failed"
+            except paramiko.AuthenticationException:
+                authenticated = False
+                reason = "ssh_authentication_failed"
+            latency = max(1, round((time.monotonic() - started) * 1000))
+            return HostKeyDiscoveryResult(
+                status="healthy" if authenticated else "unhealthy",
+                latency_ms=latency,
+                reason=reason,
+                host_key=host_key,
+                fingerprint=fingerprint,
+                algorithm=key.get_name(),
+                bits=key.get_bits(),
+            )
+        except (OSError, paramiko.SSHException) as exc:
+            raise DriverOperationError(self._reason(exc)) from exc
+        finally:
+            if transport is not None:
+                transport.close()
+            elif sock is not None:
+                sock.close()
 
     def execute_wake(
         self,

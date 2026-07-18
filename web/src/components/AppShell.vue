@@ -2,11 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Activity, Boxes, CircleGauge, Cpu, FileClock, LayoutDashboard, ListTree,
-  LogOut, Menu, Moon, Network, Search, Settings, ShieldCheck, Sun, X,
+  Activity, CircleGauge, Cpu, FileClock, LayoutDashboard, ListTree,
+  LogOut, Mail, Menu, Moon, Network, Search, ServerCog, Settings, ShieldCheck, Sun, Users, X,
 } from '@lucide/vue'
 import { api } from '../api'
-import type { EngineState } from '../api'
+import type { EngineState, SystemInfo } from '../api'
 import { session } from '../session'
 import BrandMark from './BrandMark.vue'
 
@@ -16,10 +16,11 @@ const router = useRouter()
 const sidebarOpen = ref(false)
 const accountOpen = ref(false)
 const engine = ref<EngineState | null>(null)
+const systemInfo = ref<SystemInfo | null>(null)
 
 const initials = computed(() => session.user?.username.slice(0, 2).toUpperCase() ?? 'WO')
 const engineLabel = computed(() => engine.value ? `Engine ${engine.value.observed_state}` : 'Engine unavailable')
-const navigation = [
+const navigation = computed(() => [
   { group: 'Overview', items: [
     { label: 'Overview', to: '/', icon: LayoutDashboard },
     { label: 'Architecture', to: '/architecture', icon: Network },
@@ -31,12 +32,13 @@ const navigation = [
   ]},
   { group: 'Observe', items: [
     { label: 'Events', to: '/events', icon: Activity },
-    { label: 'Audit trail', to: '/audit', icon: FileClock },
+    ...(session.user?.role !== 'operator' ? [{ label: 'Audit trail', to: '/audit', icon: FileClock }] : []),
   ]},
   { group: 'Administration', items: [
-    { label: 'Settings', to: '/settings', icon: Settings },
+    ...(session.user?.role !== 'operator' ? [{ label: 'Settings', to: '/settings', icon: Settings }] : []),
+    ...(session.user?.role === 'owner' ? [{ label: 'Users & sessions', to: '/users', icon: Users }, { label: 'SMTP', to: '/smtp', icon: Mail }, { label: 'Host operations', to: '/host', icon: ServerCog }] : []),
   ]},
-]
+].filter(section => section.items.length))
 
 async function logout() {
   await api.logout().catch(() => undefined)
@@ -44,7 +46,11 @@ async function logout() {
   accountOpen.value = false
   await router.push('/login')
 }
-onMounted(async () => { try { engine.value = await api.engine() } catch { engine.value = null } })
+onMounted(async () => {
+  const [engineResult, infoResult] = await Promise.allSettled([api.engine(), api.systemInfo()])
+  engine.value = engineResult.status === 'fulfilled' ? engineResult.value : null
+  systemInfo.value = infoResult.status === 'fulfilled' ? infoResult.value : null
+})
 </script>
 
 <template>
@@ -61,7 +67,7 @@ onMounted(async () => { try { engine.value = await api.engine() } catch { engine
           </RouterLink>
         </section>
       </nav>
-      <div class="sidebar-foot"><span class="connection-dot"></span><div><strong>WOLT v0.2</strong><small>Authenticated preview</small></div></div>
+      <div class="sidebar-foot"><span class="connection-dot"></span><div><strong>WOLT {{ systemInfo?.version ?? 'v1.0' }}</strong><small>{{ systemInfo?.commit_sha === 'local' ? 'Local development build' : `Build ${systemInfo?.commit_sha ?? 'loading'}` }}</small></div></div>
     </aside>
 
     <button class="scrim" aria-label="Close navigation" @click="sidebarOpen = false"><X /></button>

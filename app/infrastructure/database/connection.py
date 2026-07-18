@@ -30,14 +30,17 @@ class Database:
             return False
 
     def schema_is_ready(self) -> bool:
+        return self.schema_revision() is not None
+
+    def schema_revision(self) -> str | None:
         try:
             with self.engine.connect() as connection:
                 revision = connection.execute(
                     text("SELECT version_num FROM alembic_version")
                 ).scalar_one_or_none()
-            return bool(revision)
+            return str(revision) if revision else None
         except Exception:
-            return False
+            return None
 
     def owner_exists(self) -> bool:
         try:

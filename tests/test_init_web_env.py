@@ -32,6 +32,8 @@ def test_init_web_env_generates_private_unique_secrets(tmp_path: Path) -> None:
     assert database_password != bootstrap_token
     assert len(master_key) == 64
     assert len({database_password, bootstrap_token, master_key}) == 3
+    assert values["WOLT_UDP_PUBLISHED_START"] == "40000"
+    assert values["WOLT_UDP_PUBLISHED_END"] == "40099"
     assert bootstrap_token in result.stdout
     assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
 
@@ -82,4 +84,22 @@ def test_upgrade_web_env_preserves_existing_values_and_adds_master_key(
         env=environment,
     )
     assert repeated.returncode != 0
-    assert "already configured" in repeated.stderr
+    assert "already up to date" in repeated.stderr
+
+
+def test_upgrade_web_env_adds_udp_envelope_when_master_key_exists(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env.web"
+    env_file.write_text("POSTGRES_PASSWORD='existing'\nWOLT_MASTER_KEY='" + "ab" * 32 + "'\n")
+
+    subprocess.run(
+        ["bash", str(UPGRADE_SCRIPT)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "WOLT_WEB_ENV_FILE": str(env_file)},
+    )
+
+    contents = env_file.read_text()
+    assert contents.count("WOLT_MASTER_KEY=") == 1
+    assert "WOLT_UDP_PUBLISHED_START=40000" in contents
+    assert "WOLT_UDP_PUBLISHED_END=40099" in contents

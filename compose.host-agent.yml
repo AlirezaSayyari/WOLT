@@ -1,0 +1,12 @@
+services:
+  app:
+    environment:
+      WOLT_HOST_AGENT_SOCKET: /run/wolt-agent/agent.sock
+      WOLT_HOST_AGENT_TOKEN: ${WOLT_HOST_AGENT_TOKEN:?Install and configure the WOLT Host Agent}
+    volumes:
+      - type: bind
+        source: /run/wolt-agent
+        target: /run/wolt-agent
+        read_only: true
+    group_add:
+      - "${WOLT_HOST_AGENT_GID:?Set WOLT_HOST_AGENT_GID after installing the Host Agent}"
