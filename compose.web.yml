@@ -1,0 +1,82 @@
+name: wolt-web
+
+services:
+  app:
+    build:
+      context: .
+      target: production
+      args:
+        WOLT_VERSION: ${WOLT_VERSION:-v1.0.0-dev}
+        WOLT_COMMIT_SHA: ${WOLT_COMMIT_SHA:-local}
+        WOLT_BUILD_DATE: ${WOLT_BUILD_DATE:-unknown}
+    image: ${WOLT_IMAGE:-wolt:dev}
+    restart: unless-stopped
+    command: ["python", "-m", "app.web"]
+    environment:
+      WOLT_DB_HOST: postgres
+      WOLT_DB_PORT: 5432
+      WOLT_DB_NAME: wolt
+      WOLT_DB_USER: wolt
+      WOLT_DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.web}
+      WOLT_WEB_HOST: 0.0.0.0
+      WOLT_WEB_PORT: ${WOLT_WEB_PORT:-8080}
+      WOLT_ENVIRONMENT: ${WOLT_ENVIRONMENT:-production}
+      WOLT_AUTO_MIGRATE: ${WOLT_AUTO_MIGRATE:-true}
+      WOLT_BOOTSTRAP_TOKEN: ${WOLT_BOOTSTRAP_TOKEN:-}
+      WOLT_MASTER_KEY: ${WOLT_MASTER_KEY:-}
+      WOLT_SESSION_SECURE: ${WOLT_SESSION_SECURE:-false}
+      WOLT_SESSION_HOURS: ${WOLT_SESSION_HOURS:-12}
+      WOLT_UDP_PUBLISHED_START: ${WOLT_UDP_PUBLISHED_START:-40000}
+      WOLT_UDP_PUBLISHED_END: ${WOLT_UDP_PUBLISHED_END:-40099}
+    ports:
+      - "${WOLT_WEB_PORT:-8080}:${WOLT_WEB_PORT:-8080}/tcp"
+      - "${WOLT_UDP_PUBLISHED_START:-40000}-${WOLT_UDP_PUBLISHED_END:-40099}:${WOLT_UDP_PUBLISHED_START:-40000}-${WOLT_UDP_PUBLISHED_END:-40099}/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:${WOLT_WEB_PORT:-8080}/api/v1/health/ready', timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wolt
+      POSTGRES_USER: wolt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.web}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wolt -d wolt"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
+volumes:
+  postgres-data:
+
+networks:
+  backend:
+    driver: bridge

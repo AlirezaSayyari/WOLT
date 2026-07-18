@@ -32,6 +32,34 @@ jobs:
           target: production
           load: true
           tags: wolt:ci
+      - name: Validate PostgreSQL migrations
+        run: |
+          docker network create wolt-ci
+          docker run -d --name wolt-ci-postgres --network wolt-ci \
+            -e POSTGRES_DB=wolt \
+            -e POSTGRES_USER=wolt \
+            -e POSTGRES_PASSWORD=ci-only-password \
+            postgres:18-alpine
+          for attempt in $(seq 1 30); do
+            if docker exec wolt-ci-postgres pg_isready -U wolt -d wolt; then
+              break
+            fi
+            sleep 1
+          done
+          docker run --rm --network wolt-ci \
+            -e DATABASE_URL=postgresql+psycopg://wolt:ci-only-password@wolt-ci-postgres:5432/wolt \
+            wolt:ci alembic upgrade head
+          docker run --rm --network wolt-ci \
+            -e DATABASE_URL=postgresql+psycopg://wolt:ci-only-password@wolt-ci-postgres:5432/wolt \
+            wolt:ci alembic check
+          docker run --rm --network wolt-ci \
+            -e TEST_DATABASE_URL=postgresql+psycopg://wolt:ci-only-password@wolt-ci-postgres:5432/wolt \
+            wolt:test pytest -q tests/test_auth_integration.py
+      - name: Clean integration containers
+        if: always()
+        run: |
+          docker rm -f wolt-ci-postgres 2>/dev/null || true
+          docker network rm wolt-ci 2>/dev/null || true
 
   security:
     runs-on: ubuntu-latest

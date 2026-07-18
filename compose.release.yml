@@ -1,4 +1,0 @@
-services:
-  wolt:
-    image: ${WOLT_IMAGE:?Set WOLT_IMAGE to the published image tag}
-    build: null

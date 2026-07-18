@@ -17,9 +17,9 @@ curl -fsSL https://raw.githubusercontent.com/AlirezaSayyari/WOLT/main/install.sh
 
 Translate standard Wake-on-LAN magic packets from Guacamole or another PAM system into native edge-device wake commands.
 
-The interactive installer securely collects the FortiGate connection, allowed Guacamole source IP, and first listener mapping; pins the SSH host key; pulls the published image; and starts WOLT. Docker Engine, Docker Compose v2, Git, and `ssh-keyscan` must already be installed.
+The installer generates the database, bootstrap, and encryption secrets locally; pulls the signed web image; starts PostgreSQL and WOLT; and prints the one-time Owner setup token. Docker Engine, Docker Compose v2, Git, and OpenSSL must already be installed.
 
-> Current stable image: `alirezasayyari/wolt:0.1.0`
+> Current stable image: `alirezasayyari/wolt:v1.0.0` (also published as `1.0.0` and `latest`)
 
 ---
 
@@ -36,7 +36,89 @@ Guacamole can send a standard Wake-on-LAN magic packet, but the target workstati
 - executes the native wake command through a pinned SSH connection;
 - emits structured operational logs without logging passwords or packet contents.
 
-The current `v0.1.x` release is a tested headless MVP with a built-in FortiGate SSH adapter. The architecture is intentionally designed for additional edge-device providers and a management web interface in later releases.
+WOLT v1.0 includes the Vue management UI, FastAPI API, PostgreSQL persistence,
+encrypted device credentials, first-run Owner setup, role-based users, SMTP invitations
+and recovery, listener management, live engine controls, event analytics, audit history,
+and the optional restricted Host Agent. The driver contract remains extensible for
+future edge-device providers.
+
+## First startup
+
+The one-line installer starts the published image. For a source checkout, run:
+
+```bash
+./scripts/init-web-env.sh
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+  docker compose --env-file .env.web -f compose.web.yml up -d --no-build
+```
+
+The initializer generates independent cryptographically random database and bootstrap
+secrets, writes `.env.web` with mode `600`, refuses to overwrite an existing file,
+and prints the first-run token with setup guidance. No manual secret editing is needed.
+
+Open `http://WOLT_HOST:8080` and enter the printed bootstrap token to create the first Owner.
+Save the one-time recovery code in a password manager. The application starts as non-root with a read-only
+root filesystem, runs the initial migration, and keeps PostgreSQL on an internal
+Docker network. The deployment envelope defaults to UDP `40000–40099`; its start and
+end can be chosen in `.env.web` before container creation. Published and active ports
+must remain between `1024` and `65535`, and a deployment range may contain at most 100
+ports. The active allocation range can then be narrowed from the Settings page without
+recreating the container.
+
+### Upgrading an existing installation
+
+Existing `.env.web` files can be upgraded with missing encryption and published-range
+settings without replacing any current value:
+
+```bash
+./scripts/upgrade-web-env.sh
+docker compose --env-file .env.web -f compose.web.yml up -d --build --force-recreate
+```
+
+Back up `.env.web` securely after the upgrade. Losing `WOLT_MASTER_KEY` makes the
+encrypted device credentials unrecoverable; the key is deliberately not stored in
+PostgreSQL.
+
+For an HTTPS deployment, set `WOLT_SESSION_SECURE=true`. `WOLT_SESSION_HOURS`
+controls the server-side session lifetime and defaults to 12 hours. The bootstrap
+token only authorizes creation of the first Owner; subsequent setup attempts are
+rejected by the database-backed Owner invariant. The bootstrap token only needs to
+remain private until Owner creation is complete. The Recovery Code shown in the UI is
+the long-term secret that must be retained.
+
+When adding a FortiGate in the web UI, enter its address and service-account credential,
+then select **Discover key & test connection**. WOLT performs the SSH handshake from the
+server, displays the SHA-256 fingerprint for operator confirmation, tests authentication,
+and fills the pinned host-key automatically. The credential is never returned by the API
+or included in the audit record.
+
+After the first Owner is created, open **SMTP** to configure mail delivery and the public
+HTTPS URL used in one-time links. Send a test message before enabling the configuration.
+Then use **Users & sessions** to invite an Administrator or Operator; recipients set their
+own password through a 24-hour single-use link. Email password recovery uses a 30-minute
+single-use link and revokes all existing sessions. The original Owner offline recovery code
+remains available when email is unavailable.
+
+### Optional restricted Host Agent
+
+To manage UFW, published UDP ports, signed upgrades, health verification, and rollback
+from the Owner UI, install the restricted Host Agent once on the Docker host:
+
+```bash
+sudo ./scripts/install-host-agent.sh /data/WOLT
+```
+
+The app container remains non-root and never receives the Docker socket. Communication uses
+an authenticated, group-restricted Unix socket. Upgrade images are accepted only after Cosign
+verifies the official WOLT GitHub release workflow, and the verified digest—not the mutable
+tag—is deployed. See [Phase 7 Host Operations](docs/design/09-phase-7-host-operations.md)
+before enabling this capability.
+
+Stop WOLT without deleting its database:
+
+```bash
+docker compose --env-file .env.web -f compose.web.yml down
+```
 
 ## Architecture
 
@@ -74,19 +156,85 @@ flowchart LR
 
 ### Port-to-interface contract
 
-The UDP destination port is a mapping identifier. It is never copied into the FortiGate command.
+The standard magic packet contains the destination MAC address, but it does not carry a
+FortiGate interface, VDOM, or routed destination network. WOLT therefore uses the UDP
+destination port on its own host as an explicit and deterministic **network selector**.
+The listener record selected by that port contains:
+
+- the only PAM/guacd source IP allowed to use it;
+- the edge Device and its VDOM-scoped credential;
+- the exact FortiGate interface;
+- the destination broadcast IP.
+
+Three port numbers appear in the end-to-end path and must not be confused:
+
+| Port | Path | Purpose |
+| --- | --- | --- |
+| `40016/UDP` (example) | PAM / guacd → WOLT | Listener and mapping key; configurable in WOLT and the PAM connection |
+| `22/TCP` (default) | WOLT → FortiGate | SSH management connection configured on the Device |
+| `9/UDP` | FortiGate → destination LAN | Native Wake-on-LAN datagram generated by the FortiGate command |
+
+The incoming listener port is never copied into the FortiGate command.
 
 | Incoming request | WOLT mapping | Native action |
 | --- | --- | --- |
-| `WOLT_HOST:40016` | `demo-vlan-16` + `198.51.100.94` | Wake the parsed MAC on the mapped LAN |
-| `WOLT_HOST:40067` | `demo-vlan-67` + `203.0.113.30` | Wake the parsed MAC on the mapped LAN |
+| `WOLT_HOST:40016/UDP` | Device A + `demo-vlan-16` + `198.51.100.255` | SSH to Device A, then send UDP/9 on VLAN 16 |
+| `WOLT_HOST:40067/UDP` | Device B + `demo-vlan-67` + `203.0.113.255` | SSH to Device B, then send UDP/9 on VLAN 67 |
 
 This convention lets a PAM connection select the destination network by using a dedicated UDP port while remaining unaware of the edge-device CLI.
+
+### End-to-end setup contract
+
+1. In **Settings**, choose the Docker-published UDP range above port 1024; expose the
+   same range in the host firewall, or use the optional Host Agent to manage UFW.
+2. In **Devices**, create the VDOM-restricted FortiGate connection and confirm its SSH
+   fingerprint.
+3. In **Listeners**, allocate one UDP port per destination network and map it to the
+   Device, interface, broadcast IP, and PAM/guacd source IP.
+4. In Guacamole or the PAM platform, set the WOLT server address and the exact UDP port
+   assigned to that listener.
+5. Enable the listener and engine, send a test wake, and verify the Events page.
+
+### FortiOS compatibility and account verification
+
+WOLT v1.0 supports the system-interface syntax documented for the FortiOS **7.2, 7.4,
+and 7.6** release branches:
+
+```text
+execute wake-on-lan <interface> <host-mac> <protocol> <port> <ip> <password>
+```
+
+WOLT uses protocol `2` (UDP), destination port `9`, the listener's broadcast IP, and no
+SecureOn password:
+
+```text
+execute wake-on-lan <interface> <host-mac> 2 9 <broadcast-ip>
+```
+
+Before registering the Device, log in with the exact restricted service account and run
+this safe-shaped verification command using a real interface and broadcast IP from its
+VDOM:
+
+```text
+execute wake-on-lan <interface> 02:00:00:00:00:01 2 9 <broadcast-ip>
+```
+
+`02:00:00:00:00:01` is a locally administered example MAC; confirm that it is unused in
+the destination LAN before testing. A permission, parse, or unknown-command error means the account
+or FortiOS variant is not ready for WOLT. A successful command commonly produces little or
+no output. WOLT v1.0 does not claim compatibility with FortiSwitch syntax, which adds an
+`interface_type` argument, or with untested FortiOS branches. Confirm availability on the
+appliance with `execute wake-on-lan ?` before deployment. See the official
+[FortiOS 7.2 CLI reference](https://docs.fortinet.com/document/fortigate/7.2.13/cli-reference/788671570/execute-wake-on-lan),
+[FortiOS 7.4 CLI reference](https://docs.fortinet.com/document/fortigate/7.4.10/cli-reference/313764410/cli-execute-commands),
+and [FortiOS 7.6 CLI reference](https://docs.fortinet.com/document/fortigate/7.6.6/cli-reference/788671570/execute-wake-on-lan).
 
 ## Security model
 
 - The container runs as the non-root user `wolt` with UID/GID `10001`.
 - The FortiGate account should be restricted to its assigned VDOM and the required wake command.
+- The tested FortiGate profile requires **CLI Execute: Enabled**, **Network Group: Custom**,
+  and **Packet Capture: Read/Write**; permission labels may vary by FortiOS version.
 - WOLT uses a direct SSH `exec_command`; it does not open an interactive shell.
 - `config vdom`, `edit`, and `end` are not sent because the service account is already scoped to its working VDOM.
 - Unknown or changed SSH host keys are rejected.
@@ -94,6 +242,14 @@ This convention lets a PAM connection select the destination network by using a 
 - `.env`, live mappings, and `known_hosts` are excluded from Git.
 - Passwords, complete payloads, and environment dumps are never logged.
 - A malformed packet or failed SSH request does not terminate its listener.
+
+### FortiGate VDOM scope
+
+**Multi-VDOM deployment rule:** one WOLT Device represents one FortiGate administrative
+VDOM scope. If the required interfaces are distributed across different VDOMs, create a
+separate WOLT Device and a separate least-privilege FortiGate service account restricted to
+each VDOM. Do not use a global or `super_admin` account. WOLT intentionally does not send
+`config vdom`, `edit`, `execute enter`, or other VDOM-switching commands in this mode.
 
 ## Requirements
 
@@ -107,67 +263,38 @@ Published images support `linux/amd64` and `linux/arm64`.
 
 ## Manual Docker installation
 
-Use this path when you want to review or customize every file instead of using the interactive installer.
+Use this path when you want to review the deployment files instead of using the one-line installer.
 
 ```bash
-git clone https://github.com/AlirezaSayyari/WOLT.git
+git clone --branch v1.0.0 --depth 1 https://github.com/AlirezaSayyari/WOLT.git
 cd WOLT
-cp .env.example .env
-cp config/interfaces.example.yaml config/interfaces.yaml
-mkdir -p ssh
-ssh-keyscan -T 5 -p 22 192.0.2.30 > ssh/known_hosts
-chmod 600 .env ssh/known_hosts
-```
-
-Edit `.env` and `config/interfaces.yaml`, then start the published release:
-
-```bash
-WOLT_IMAGE=alirezasayyari/wolt:0.1.0 \
-docker compose -f docker-compose.yml -f compose.release.yml up -d
-```
-
-To build from the local source instead:
-
-```bash
-docker compose up -d --build
+./scripts/init-web-env.sh
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+  docker compose --env-file .env.web -f compose.web.yml pull
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+  docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 
 ## Configuration
 
-### Environment variables
+The generated `.env.web` is mode `600` and contains the database password, first-run
+bootstrap token, and master encryption key. Back it up in a secure password-management
+system; never commit it. Normal Device, Listener, SMTP, retention, and engine settings are
+managed in the UI.
+
+### Deployment environment variables
 
 | Variable | Required | Default | Description |
 | --- | ---: | --- | --- |
-| `FORTIGATE_HOST` | Yes | — | FortiGate hostname or IP address |
-| `FORTIGATE_SSH_PORT` | No | `22` | FortiGate SSH port |
-| `FORTIGATE_USERNAME` | Yes | — | Restricted FortiGate service account |
-| `FORTIGATE_PASSWORD` | Yes | — | Service-account password; keep outside Git |
-| `GUACAMOLE_ALLOWED_IP` | Yes | — | Only source IP permitted to send packets |
-| `SSH_CONNECT_TIMEOUT` | No | `5` | SSH connection timeout in seconds |
-| `SSH_COMMAND_TIMEOUT` | No | `10` | Native command timeout in seconds |
-| `WOL_RATE_LIMIT_SECONDS` | No | `30` | Per-listener and destination-MAC cooldown |
-| `LOG_LEVEL` | No | `INFO` | Python logging level |
-| `MAPPING_FILE` | No | `/app/config/interfaces.yaml` | Mapping file inside the container |
-| `KNOWN_HOSTS_FILE` | No | `/home/wolt/.ssh/known_hosts` | Pinned SSH host-key file |
-
-### Listener mappings
-
-```yaml
-listeners:
-  "40016":
-    interface: "demo-vlan-16"
-    gateway_ip: "198.51.100.94"
-  "40067":
-    interface: "demo-vlan-67"
-    gateway_ip: "203.0.113.30"
-```
-
-Rules:
-
-- UDP ports must be unique and between `1024` and `65535`.
-- Every mapping requires an interface and a valid IPv4 or IPv6 gateway/broadcast address.
-- Interface values are strictly validated before they can reach the command builder.
-- Empty, malformed, or duplicate mappings prevent startup instead of starting in an unsafe partial state.
+| `POSTGRES_PASSWORD` | Yes | generated | PostgreSQL credential |
+| `WOLT_BOOTSTRAP_TOKEN` | First setup | generated | One-time authorization for creating the first Owner |
+| `WOLT_MASTER_KEY` | Yes | generated | Encrypts Device and SMTP credentials; loss makes them unrecoverable |
+| `WOLT_WEB_PORT` | No | `8080` | Web UI and API TCP port |
+| `WOLT_SESSION_SECURE` | Production HTTPS | `false` | Requires Secure browser cookies when set to `true` |
+| `WOLT_SESSION_HOURS` | No | `12` | Server-side session lifetime |
+| `WOLT_UDP_PUBLISHED_START` | No | `40000` | First Docker-published listener port; must be at least 1024 |
+| `WOLT_UDP_PUBLISHED_END` | No | `40099` | Last Docker-published listener port; maximum range size is 100 |
+| `WOLT_IMAGE` | No | local development image | Published image, normally `alirezasayyari/wolt:v1.0.0` |
 
 ## Guacamole configuration
 
@@ -180,15 +307,18 @@ Wake-on-LAN UDP Port:          40016
 Wake-on-LAN Wait Time:         30
 ```
 
-The Guacamole broadcast-address field points to the WOLT server. The random UDP source port is not trusted or validated; the guacd source IP must match `GUACAMOLE_ALLOWED_IP`.
+The Guacamole broadcast-address field points to the WOLT server—not the destination LAN.
+The listener's **Allowed PAM / guacd source IP** must be the address actually observed from
+the guacd host. The random UDP source port is irrelevant; WOLT validates the source IP and
+the destination listener port.
 
 ## Operations
 
 ### Status and logs
 
 ```bash
-docker compose ps
-docker compose logs -f wolt
+docker compose --env-file .env.web -f compose.web.yml ps
+docker compose --env-file .env.web -f compose.web.yml logs -f app
 ```
 
 ### Verify UDP listeners
@@ -207,8 +337,11 @@ sudo tcpdump -ni any 'udp portrange 40000-40099' -s0 -vvv -XX
 
 ```bash
 cd /opt/wolt
-docker compose -f docker-compose.yml -f compose.release.yml pull
-docker compose -f docker-compose.yml -f compose.release.yml up -d
+./scripts/upgrade-web-env.sh
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+  docker compose --env-file .env.web -f compose.web.yml pull
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+  docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 
 ## Event reference
@@ -248,14 +381,19 @@ The CI workflow runs the tests, performs a production-image build, and scans the
 
 ## Roadmap
 
-- Management UI with onboarding, mappings, devices, logs, and engine controls
-- PostgreSQL reference deployment and optional SQL Server support
-- Encrypted device and SMTP credentials
-- Authentication, password recovery, and audit events
+- Web foundation: Vue shell, management API, PostgreSQL, and migrations — implemented on `main`
+- First-run Owner setup, authentication, recovery, and session management — implemented in v1.0
+- Device and listener CRUD with live validation and engine reconciliation — implemented in Phase 4
+- Event explorer, dashboard analytics, CSV export, audit history, and retention jobs — implemented in Phase 5
+- Configurable active/published UDP ranges, build metadata, FortiGate permission guidance, favicon, and UI readability improvements — implemented in Phase 5.1
+- Owner-managed users and sessions, enforced Administrator/Operator roles, encrypted SMTP, invitations, and email password reset — implemented in Phase 6
+- Restricted Host Agent, managed UFW ingress, published-range recreation, signed digest-pinned upgrades, health verification, and rollback — implemented in Phase 7
+- Phase 8 after v1.0: optional external SQL Server compatibility suite and deployment profile
+- Phase 9 after v1.0: additional edge-device providers and provider-specific command profiles
+- Encrypted device credentials — implemented in Phase 4; encrypted SMTP credentials implemented in Phase 6
 - Schema-driven edge-device providers beyond FortiGate
-- Configurable UDP allocation range and persisted event dashboards
 
-See [Product UX](docs/design/01-product-ux.md), [Technical Architecture](docs/design/02-architecture-erd.md), and [UI Design Specification](docs/design/03-ui-design-spec.md).
+See [Product UX](docs/design/01-product-ux.md), [Technical Architecture](docs/design/02-architecture-erd.md), [UI Design Specification](docs/design/03-ui-design-spec.md), [Phase 4 Operations](docs/design/05-phase-4-operations.md), [Phase 5 Observability](docs/design/06-phase-5-observability.md), [Phase 5.1 Hardening](docs/design/07-phase-5-1-hardening.md), [Phase 6 Identity & Email](docs/design/08-phase-6-identity-email.md), and [Phase 7 Host Operations](docs/design/09-phase-7-host-operations.md).
 
 ## Contributing
 

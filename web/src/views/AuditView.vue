@@ -1,0 +1,20 @@
+<script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
+import { ChevronDown, ChevronLeft, ChevronRight, LoaderCircle, RefreshCw, Search, ShieldCheck } from '@lucide/vue'
+import { api, readableError, type AuditEvent, type Page } from '../api'
+import AppShell from '../components/AppShell.vue'
+
+defineProps<{ theme: 'light' | 'dark' }>(); const emit = defineEmits<{ toggleTheme: [] }>()
+const data = ref<Page<AuditEvent>>({ items: [], page: 1, page_size: 25, total: 0, pages: 1 }); const loading = ref(true); const error = ref(''); const expanded = ref<string | null>(null)
+const filters = reactive({ query: '', action: '', object_type: '' })
+async function load(page = 1) { loading.value = true; error.value = ''; try { data.value = await api.audit({ page, page_size: data.value.page_size, ...filters }) } catch (reason) { error.value = readableError(reason) } finally { loading.value = false } }
+function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value)) }
+onMounted(() => load())
+</script>
+
+<template><AppShell :theme="theme" @toggle-theme="emit('toggleTheme')">
+  <section class="page-heading"><div><p class="eyebrow">OBSERVE / AUDIT</p><h1>Administrative audit trail</h1><p>Review security-relevant configuration and engine changes without exposing credentials.</p></div><span class="security-badge"><ShieldCheck :size="16" /> Secret-safe records</span></section>
+  <form class="panel filter-toolbar" @submit.prevent="load(1)"><label class="filter-search"><Search :size="15" /><input v-model.trim="filters.query" placeholder="Actor, action, object, or client IP" /></label><input v-model.trim="filters.action" placeholder="Exact action" aria-label="Action" /><select v-model="filters.object_type" aria-label="Object type"><option value="">All object types</option><option value="device">Device</option><option value="listener_mapping">Listener</option><option value="engine_state">Engine</option><option value="application_settings">Settings</option><option value="user">User</option></select><button class="primary-button" type="submit"><RefreshCw :size="14" /> Apply</button></form>
+  <p v-if="error" class="form-error page-error">{{ error }}</p>
+  <section class="panel operations-table observation-table"><header><span>{{ data.total }} immutable audit records</span><strong>Newest first</strong></header><div class="table-wrap"><table><thead><tr><th>Action</th><th>Actor</th><th>Object</th><th>Object ID</th><th>Client IP</th><th>Occurred</th><th></th></tr></thead><tbody><template v-for="item in data.items" :key="item.id"><tr><td><code>{{ item.action }}</code></td><td>{{ item.actor }}</td><td>{{ item.object_type }}</td><td><code>{{ item.object_id ?? '—' }}</code></td><td><code>{{ item.client_ip }}</code></td><td>{{ formatDate(item.occurred_at) }}</td><td><button class="row-detail-button" :aria-expanded="expanded === item.id" @click="expanded = expanded === item.id ? null : item.id"><ChevronDown :size="14" /></button></td></tr><tr v-if="expanded === item.id" class="detail-row"><td colspan="7"><div><strong>Safe changes</strong><pre>{{ JSON.stringify(item.safe_changes, null, 2) }}</pre></div></td></tr></template><tr v-if="!loading && !data.items.length"><td colspan="7"><div class="empty-table"><ShieldCheck :size="20" /><strong>No matching audit records</strong><small>Administrative changes will appear here.</small></div></td></tr><tr v-if="loading"><td colspan="7"><div class="empty-table"><LoaderCircle class="spin" :size="20" /><strong>Loading audit trail…</strong></div></td></tr></tbody></table></div><footer class="pagination"><span>Page {{ data.page }} of {{ data.pages }}</span><div><button :disabled="loading || data.page <= 1" @click="load(data.page - 1)"><ChevronLeft :size="15" /> Previous</button><button :disabled="loading || data.page >= data.pages" @click="load(data.page + 1)">Next <ChevronRight :size="15" /></button></div></footer></section>
+</AppShell></template>
