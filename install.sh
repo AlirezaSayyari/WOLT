@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 readonly REPOSITORY_URL="https://github.com/AlirezaSayyari/WOLT.git"
 readonly INSTALL_DIR="${WOLT_INSTALL_DIR:-/opt/wolt}"
-readonly VERSION="${WOLT_VERSION:-1.0.0}"
+readonly VERSION="${WOLT_VERSION:-1.0.1}"
 readonly IMAGE="${WOLT_IMAGE:-alirezasayyari/wolt:v${VERSION}}"
 
 log() { printf '[WOLT] %s\n' "$*"; }

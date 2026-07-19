@@ -131,7 +131,7 @@ def test_unix_socket_requires_bearer_token(tmp_path: Path) -> None:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        assert HostAgentClient(agent_config.socket_path, agent_config.token).request("GET", "/v1/status")["agent_version"] == "1.0.0"
+        assert HostAgentClient(agent_config.socket_path, agent_config.token).request("GET", "/v1/status")["agent_version"] == "1.0.1"
         with pytest.raises(HostAgentError) as error:
             HostAgentClient(agent_config.socket_path, "wrong" * 10).request("GET", "/v1/status")
         assert error.value.status == 401

@@ -28,6 +28,7 @@ def test_web_settings_parse_explicit_values() -> None:
             "WOLT_VERSION": "v0.2.0-test",
             "WOLT_COMMIT_SHA": "abc123",
             "WOLT_BUILD_DATE": "2026-07-18T12:00:00Z",
+            "WOLT_SMTP_CA_FILE": "/etc/wolt/certs/internal-ca.pem",
         }
     )
 
@@ -45,6 +46,7 @@ def test_web_settings_parse_explicit_values() -> None:
     assert settings.version == "v0.2.0-test"
     assert settings.commit_sha == "abc123"
     assert settings.build_date == "2026-07-18T12:00:00Z"
+    assert settings.smtp_ca_file == Path("/etc/wolt/certs/internal-ca.pem")
 
 
 @pytest.mark.parametrize("port", ["0", "65536", "not-a-port"])

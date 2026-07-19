@@ -90,11 +90,12 @@ class WebSettings:
     session_hours: int = 12
     udp_published_start: int = 40000
     udp_published_end: int = 40099
-    version: str = "v1.0.0-dev"
+    version: str = "v1.0.1-dev"
     commit_sha: str = "local"
     build_date: str = "unknown"
     host_agent_socket: Path = Path("/run/wolt-agent/agent.sock")
     host_agent_token: str = ""
+    smtp_ca_file: Path | None = None
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> "WebSettings":
@@ -130,6 +131,7 @@ class WebSettings:
             )
         if udp_end - udp_start + 1 > 100:
             raise WebConfigError("The published UDP range cannot exceed 100 ports")
+        smtp_ca_file = env.get("WOLT_SMTP_CA_FILE", "").strip()
         return cls(
             database_url=database_url,
             host=env.get("WOLT_WEB_HOST", "0.0.0.0").strip() or "0.0.0.0",
@@ -145,9 +147,10 @@ class WebSettings:
             session_hours=_session_hours(env.get("WOLT_SESSION_HOURS", "12")),
             udp_published_start=udp_start,
             udp_published_end=udp_end,
-            version=env.get("WOLT_VERSION", "v1.0.0-dev").strip() or "v1.0.0-dev",
+            version=env.get("WOLT_VERSION", "v1.0.1-dev").strip() or "v1.0.1-dev",
             commit_sha=env.get("WOLT_COMMIT_SHA", "local").strip() or "local",
             build_date=env.get("WOLT_BUILD_DATE", "unknown").strip() or "unknown",
             host_agent_socket=Path(env.get("WOLT_HOST_AGENT_SOCKET", "/run/wolt-agent/agent.sock")),
             host_agent_token=_host_agent_token(env.get("WOLT_HOST_AGENT_TOKEN", "")),
+            smtp_ca_file=Path(smtp_ca_file) if smtp_ca_file else None,
         )

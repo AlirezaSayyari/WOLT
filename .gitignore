@@ -4,6 +4,8 @@
 !.env.web.example
 config/interfaces.yaml
 ssh/known_hosts
+certs/*
+!certs/.gitkeep
 __pycache__/
 *.py[cod]
 .pytest_cache/
