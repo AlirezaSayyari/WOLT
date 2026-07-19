@@ -3,7 +3,7 @@
 ## One-line installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AlirezaSayyari/WOLT/main/install.sh | sudo bash
+curl -fsSL https://github.com/AlirezaSayyari/WOLT/releases/latest/download/install.sh | sudo bash -s -- --install-dir /data/WOLT
 ```
 
 <p align="center">
@@ -17,9 +17,14 @@ curl -fsSL https://raw.githubusercontent.com/AlirezaSayyari/WOLT/main/install.sh
 
 Translate standard Wake-on-LAN magic packets from Guacamole or another PAM system into native edge-device wake commands.
 
-The installer generates the database, bootstrap, and encryption secrets locally; pulls the signed web image; starts PostgreSQL and WOLT; and prints the one-time Owner setup token. Docker Engine, Docker Compose v2, Git, and OpenSSL must already be installed.
+The installer creates only the required runtime files under `/data/WOLT`; generates the
+database, bootstrap, and encryption secrets locally; verifies and pins the signed image
+digest; starts PostgreSQL and WOLT; and prints the one-time Owner setup token. It does not
+clone the repository. Docker Engine, Docker Compose v2, curl, OpenSSL, Python 3, and
+`sha256sum` must already be installed; the installer adds a checksum-verified Cosign binary
+when needed.
 
-> Current stable image: `alirezasayyari/wolt:v1.0.1` (also published as `1.0.1` and `latest`)
+> Current stable image: `alirezasayyari/wolt:v1.1.0` (also published as `1.1.0`, `1.1`, and `latest`)
 
 ---
 
@@ -36,7 +41,7 @@ Guacamole can send a standard Wake-on-LAN magic packet, but the target workstati
 - executes the native wake command through a pinned SSH connection;
 - emits structured operational logs without logging passwords or packet contents.
 
-WOLT v1.0 includes the Vue management UI, FastAPI API, PostgreSQL persistence,
+WOLT v1.1 includes the Vue management UI, FastAPI API, PostgreSQL persistence,
 encrypted device credentials, first-run Owner setup, role-based users, SMTP invitations
 and recovery, listener management, live engine controls, event analytics, audit history,
 and the optional restricted Host Agent. The driver contract remains extensible for
@@ -44,12 +49,13 @@ future edge-device providers.
 
 ## First startup
 
-The one-line installer starts the published image. For a source checkout, run:
+The one-line installer starts the digest-pinned published image. For local development from
+a source checkout, build an image explicitly and then start it:
 
 ```bash
 ./scripts/init-web-env.sh
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
-  docker compose --env-file .env.web -f compose.web.yml up -d --no-build
+docker build --target production --build-arg WOLT_VERSION=v1.1.0-dev -t wolt:local .
+WOLT_IMAGE=wolt:local docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 
 The initializer generates independent cryptographically random database and bootstrap
@@ -65,19 +71,21 @@ must remain between `1024` and `65535`, and a deployment range may contain at mo
 ports. The active allocation range can then be narrowed from the Settings page without
 recreating the container.
 
-### Upgrading an existing installation
+### One-time migration from v1.0.x
 
-Existing `.env.web` files can be upgraded with missing encryption and published-range
-settings without replacing any current value:
+An existing source-based installation can move to the minimal v1.1 runtime without losing
+its environment, certificates, PostgreSQL volume, or Host Agent backups. Run this once from
+any directory:
 
 ```bash
-./scripts/upgrade-web-env.sh
-docker compose --env-file .env.web -f compose.web.yml up -d --build --force-recreate
+curl -fsSL https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.0/install.sh | \
+  sudo bash -s -- --install-dir /data/WOLT --upgrade-existing
 ```
 
-Back up `.env.web` securely after the upgrade. Losing `WOLT_MASTER_KEY` makes the
-encrypted device credentials unrecoverable; the key is deliberately not stored in
-PostgreSQL.
+The migration first copies the existing managed runtime into
+`/var/lib/wolt-agent/runtime-backups/`. Back up `.env.web` securely before and after the
+migration. Losing `WOLT_MASTER_KEY` makes encrypted device credentials unrecoverable; the
+key is deliberately not stored in PostgreSQL.
 
 For an HTTPS deployment, set `WOLT_SESSION_SECURE=true`. `WOLT_SESSION_HOURS`
 controls the server-side session lifetime and defaults to 12 hours. The bootstrap
@@ -125,11 +133,12 @@ disabling TLS; use an IP-authorized relay or a supported SMTP AUTH mechanism.
 
 ### Optional restricted Host Agent
 
-To manage UFW, published UDP ports, signed upgrades, health verification, and rollback
-from the Owner UI, install the restricted Host Agent once on the Docker host:
+The one-line installer installs the restricted Host Agent automatically. It manages UFW,
+published UDP ports, signed upgrades, health verification, and rollback from the Owner UI.
+For a source-development installation, install it manually with:
 
 ```bash
-sudo ./scripts/install-host-agent.sh /data/WOLT
+sudo ./scripts/install-host-agent.sh "$(pwd)"
 ```
 
 The app container remains non-root and never receives the Docker socket. Communication uses
@@ -285,19 +294,22 @@ each VDOM. Do not use a global or `super_admin` account. WOLT intentionally does
 
 Published images support `linux/amd64` and `linux/arm64`.
 
-## Manual Docker installation
+## Verified installer download
 
-Use this path when you want to review the deployment files instead of using the one-line installer.
+Every GitHub release contains the exact installer used for that version and its checksum.
+To review and verify it before execution:
 
 ```bash
-git clone --branch v1.0.1 --depth 1 https://github.com/AlirezaSayyari/WOLT.git
-cd WOLT
-./scripts/init-web-env.sh
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
-  docker compose --env-file .env.web -f compose.web.yml pull
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
-  docker compose --env-file .env.web -f compose.web.yml up -d --no-build
+curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.0/install.sh
+curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.0/install.sh.sha256
+sha256sum --check install.sh.sha256
+sudo bash install.sh --install-dir /data/WOLT
 ```
+
+After installation, `/data/WOLT` contains only `.env.web`, the two Compose files,
+`VERSION`, `certs/`, and the managed `runtime/` directory. PostgreSQL remains in its Docker
+volume; database and runtime rollback files remain under `/var/lib/wolt-agent`. Git is not
+required on the server.
 
 ## Configuration
 
@@ -319,7 +331,7 @@ managed in the UI.
 | `WOLT_SMTP_CA_FILE` | No | system trust store | PEM CA bundle used in addition to public system CAs for SMTP TLS |
 | `WOLT_UDP_PUBLISHED_START` | No | `40000` | First Docker-published listener port; must be at least 1024 |
 | `WOLT_UDP_PUBLISHED_END` | No | `40099` | Last Docker-published listener port; maximum range size is 100 |
-| `WOLT_IMAGE` | No | local development image | Published image, normally `alirezasayyari/wolt:v1.0.1` |
+| `WOLT_IMAGE` | Installer-managed | verified digest | Immutable image digest selected by installation or UI upgrade |
 
 ## Guacamole configuration
 
@@ -342,8 +354,8 @@ the destination listener port.
 ### Status and logs
 
 ```bash
-docker compose --env-file .env.web -f compose.web.yml ps
-docker compose --env-file .env.web -f compose.web.yml logs -f app
+docker compose --env-file .env.web -f compose.web.yml -f compose.host-agent.yml ps
+docker compose --env-file .env.web -f compose.web.yml -f compose.host-agent.yml logs -f app
 ```
 
 ### Verify UDP listeners
@@ -360,14 +372,13 @@ sudo tcpdump -ni any 'udp portrange 40000-40099' -s0 -vvv -XX
 
 ### Upgrade the published image
 
-```bash
-cd /opt/wolt
-./scripts/upgrade-web-env.sh
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
-  docker compose --env-file .env.web -f compose.web.yml pull
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
-  docker compose --env-file .env.web -f compose.web.yml up -d --no-build
-```
+Owners can select a canonical release in **Settings → Updates**. WOLT verifies the keyless
+Cosign identity of the official GitHub release workflow, pins the verified digest, backs up
+PostgreSQL and the managed host runtime, refreshes the Compose/Host Agent files, performs a
+health check, and restarts the Host Agent. `.env.web`, `certs/`, database data, and existing
+backups are preserved. A failed health check restores the previous runtime, image, and
+database automatically; the previous successful deployment can also be rolled back from the
+same page.
 
 ## Event reference
 

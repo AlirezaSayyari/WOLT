@@ -90,7 +90,7 @@ class WebSettings:
     session_hours: int = 12
     udp_published_start: int = 40000
     udp_published_end: int = 40099
-    version: str = "v1.0.1-dev"
+    version: str = "v1.1.0-dev"
     commit_sha: str = "local"
     build_date: str = "unknown"
     host_agent_socket: Path = Path("/run/wolt-agent/agent.sock")
@@ -147,7 +147,7 @@ class WebSettings:
             session_hours=_session_hours(env.get("WOLT_SESSION_HOURS", "12")),
             udp_published_start=udp_start,
             udp_published_end=udp_end,
-            version=env.get("WOLT_VERSION", "v1.0.1-dev").strip() or "v1.0.1-dev",
+            version=env.get("WOLT_VERSION", "v1.1.0-dev").strip() or "v1.1.0-dev",
             commit_sha=env.get("WOLT_COMMIT_SHA", "local").strip() or "local",
             build_date=env.get("WOLT_BUILD_DATE", "unknown").strip() or "unknown",
             host_agent_socket=Path(env.get("WOLT_HOST_AGENT_SOCKET", "/run/wolt-agent/agent.sock")),
