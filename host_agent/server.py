@@ -2,6 +2,7 @@ import argparse
 import hmac
 import ipaddress
 import json
+import logging
 import os
 import re
 import shutil
@@ -21,6 +22,8 @@ VERSION_PATTERN = re.compile(r"^v?\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.-]+)?$")
 REPOSITORY_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$")
 DATABASE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 IMAGE_REFERENCE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,299}$")
+CANONICAL_VERSION_PATTERN = re.compile(r"^v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.-]+)?$")
+LOGGER = logging.getLogger("wolt.host_agent")
 
 
 class AgentError(RuntimeError):
@@ -45,6 +48,10 @@ class AgentConfig:
     docker_binary: str = "/usr/bin/docker"
     ufw_binary: str = "/usr/sbin/ufw"
     cosign_binary: str = "/usr/local/bin/cosign"
+    runtime_dir: Path = Path("/data/WOLT/runtime")
+    agent_install_dir: Path = Path("/opt/wolt-host-agent/host_agent")
+    systemd_run_binary: str = "/usr/bin/systemd-run"
+    systemctl_binary: str = "/usr/bin/systemctl"
     signing_identity: str = r"^https://github.com/AlirezaSayyari/WOLT/.github/workflows/release.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+.*$"
     signing_issuer: str = "https://token.actions.githubusercontent.com"
 
@@ -65,6 +72,11 @@ class AgentConfig:
         repository = os.environ.get("WOLT_IMAGE_REPOSITORY", "alirezasayyari/wolt").strip().lower()
         if not REPOSITORY_PATTERN.fullmatch(repository):
             raise AgentError("invalid_image_repository")
+        runtime_dir = Path(os.environ.get("WOLT_RUNTIME_DIR", str(project / "runtime"))).resolve()
+        try:
+            runtime_dir.relative_to(project)
+        except ValueError as exc:
+            raise AgentError("host_agent_path_outside_project") from exc
         return cls(
             token=token,
             socket_path=Path(os.environ.get("WOLT_HOST_AGENT_SOCKET", "/run/wolt-agent/agent.sock")),
@@ -77,6 +89,10 @@ class AgentConfig:
             docker_binary=os.environ.get("WOLT_DOCKER_BINARY", "/usr/bin/docker"),
             ufw_binary=os.environ.get("WOLT_UFW_BINARY", "/usr/sbin/ufw"),
             cosign_binary=os.environ.get("WOLT_COSIGN_BINARY", "/usr/local/bin/cosign"),
+            runtime_dir=runtime_dir,
+            agent_install_dir=Path(os.environ.get("WOLT_AGENT_INSTALL_DIR", "/opt/wolt-host-agent/host_agent")).resolve(),
+            systemd_run_binary=os.environ.get("WOLT_SYSTEMD_RUN_BINARY", "/usr/bin/systemd-run"),
+            systemctl_binary=os.environ.get("WOLT_SYSTEMCTL_BINARY", "/usr/bin/systemctl"),
         )
 
 
@@ -123,8 +139,18 @@ class HostController:
                 cwd=self.config.project_dir,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
+            LOGGER.error(
+                "event=host_command_failed command=%s exception_type=%s",
+                Path(arguments[0]).name if arguments else "unknown",
+                type(exc).__name__,
+            )
             raise AgentError("host_command_failed", 502) from exc
         if result.returncode != 0:
+            LOGGER.error(
+                "event=host_command_failed command=%s returncode=%s",
+                Path(arguments[0]).name if arguments else "unknown",
+                result.returncode,
+            )
             raise AgentError("host_command_failed", 502)
         return result
 
@@ -163,7 +189,7 @@ class HostController:
             except AgentError:
                 pass
         return {
-            "agent_version": "1.0.1", "ufw_available": ufw_available,
+            "agent_version": "1.1.0", "ufw_available": ufw_available,
             "ufw_active": ufw_active, "docker_available": docker_available,
             "cosign_available": cosign_available,
             "image_repository": self.config.image_repository,
@@ -226,7 +252,7 @@ class HostController:
             raise AgentError("release_discovery_failed", 502) from exc
         results = [
             {"name": row["name"], "digest": row.get("digest"), "updated_at": row.get("last_updated")}
-            for row in payload.get("results", []) if VERSION_PATTERN.fullmatch(str(row.get("name", "")))
+            for row in payload.get("results", []) if CANONICAL_VERSION_PATTERN.fullmatch(str(row.get("name", "")))
         ]
         return {"repository": self.config.image_repository, "releases": results}
 
@@ -375,6 +401,163 @@ class HostController:
             raise AgentError("signature_verification_failed", 502)
         return f"{self.config.image_repository}@{digest}"
 
+    @staticmethod
+    def _replace_directory(source: Path, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{destination.name}.new-{uuid.uuid4().hex}")
+        shutil.copytree(source, temporary, symlinks=False)
+        if destination.exists():
+            shutil.rmtree(destination)
+        os.replace(temporary, destination)
+
+    @staticmethod
+    def _copy_file(source: Path, destination: Path, mode: int = 0o644) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(f".{destination.name}.new-{uuid.uuid4().hex}")
+        shutil.copy2(source, temporary, follow_symlinks=False)
+        os.chmod(temporary, mode)
+        os.replace(temporary, destination)
+
+    def _validate_runtime(self, root: Path, version: str) -> None:
+        expected = {
+            "VERSION",
+            "compose.web.yml",
+            "compose.host-agent.yml",
+            "scripts/init-web-env.sh",
+            "scripts/install-cosign.sh",
+            "scripts/install-host-agent.sh",
+            "host_agent/__init__.py",
+            "host_agent/server.py",
+        }
+        for candidate in root.rglob("*"):
+            if candidate.is_symlink():
+                raise AgentError("runtime_bundle_invalid", 502)
+        for relative in expected:
+            candidate = root / relative
+            if not candidate.is_file():
+                raise AgentError("runtime_bundle_invalid", 502)
+        bundle_version = (root / "VERSION").read_text(encoding="utf-8").strip()
+        canonical = version if version.startswith("v") else f"v{version}"
+        if bundle_version != canonical:
+            raise AgentError("runtime_bundle_version_mismatch", 502)
+
+    def _extract_runtime(self, image: str, version: str) -> Path:
+        staging = self.config.state_file.parent / f"runtime-staging-{uuid.uuid4()}"
+        staging.mkdir(parents=True, mode=0o700)
+        container = ""
+        try:
+            result = self._run(
+                [self.config.docker_binary, "create", image, "/bin/true"], timeout=60
+            )
+            container = result.stdout.strip()
+            if not re.fullmatch(r"[0-9a-f]{12,64}", container):
+                raise AgentError("runtime_bundle_unavailable", 502)
+            self._run([
+                self.config.docker_binary,
+                "cp",
+                f"{container}:/opt/wolt-runtime/.",
+                str(staging),
+            ], timeout=120)
+            self._validate_runtime(staging, version)
+            return staging
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        finally:
+            if container:
+                self.runner(
+                    [self.config.docker_binary, "rm", "-f", container],
+                    check=False, capture_output=True, text=True, timeout=30,
+                    cwd=self.config.project_dir,
+                )
+
+    def _deploy_runtime(self, source: Path) -> Path:
+        backup = self.config.state_file.parent / "runtime-backups" / str(uuid.uuid4())
+        backup.mkdir(parents=True, mode=0o700)
+        manifest: dict[str, bool] = {}
+        for name in ("compose.web.yml", "compose.host-agent.yml", "VERSION"):
+            current = self.config.project_dir / name
+            manifest[name] = current.is_file()
+            if current.is_file():
+                shutil.copy2(current, backup / name)
+        manifest["runtime"] = self.config.runtime_dir.is_dir()
+        if self.config.runtime_dir.is_dir():
+            shutil.copytree(self.config.runtime_dir, backup / "runtime")
+        manifest["agent"] = self.config.agent_install_dir.is_dir()
+        if self.config.agent_install_dir.is_dir():
+            shutil.copytree(self.config.agent_install_dir, backup / "agent")
+        (backup / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        try:
+            self._copy_file(source / "compose.web.yml", self.config.compose_file)
+            self._copy_file(source / "compose.host-agent.yml", self.config.host_agent_compose_file)
+            self._copy_file(source / "VERSION", self.config.project_dir / "VERSION")
+            runtime_source = source / "runtime"
+            runtime_source.mkdir(mode=0o700)
+            shutil.copytree(source / "scripts", runtime_source / "scripts")
+            shutil.copytree(source / "host_agent", runtime_source / "host_agent")
+            self._replace_directory(runtime_source, self.config.runtime_dir)
+            for script in (self.config.runtime_dir / "scripts").glob("*.sh"):
+                os.chmod(script, 0o755)
+            self._replace_directory(source / "host_agent", self.config.agent_install_dir)
+        except Exception:
+            self._restore_runtime(backup)
+            raise
+        return backup
+
+    def _restore_runtime(self, backup: Path) -> None:
+        try:
+            backup = backup.resolve(strict=True)
+            backup.relative_to((self.config.state_file.parent / "runtime-backups").resolve())
+            manifest = json.loads((backup / "manifest.json").read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+            raise AgentError("runtime_backup_unavailable", 502) from exc
+        for name, destination in (
+            ("compose.web.yml", self.config.compose_file),
+            ("compose.host-agent.yml", self.config.host_agent_compose_file),
+            ("VERSION", self.config.project_dir / "VERSION"),
+        ):
+            if manifest.get(name):
+                self._copy_file(backup / name, destination)
+            else:
+                destination.unlink(missing_ok=True)
+        if manifest.get("runtime"):
+            self._replace_directory(backup / "runtime", self.config.runtime_dir)
+        else:
+            shutil.rmtree(self.config.runtime_dir, ignore_errors=True)
+        if manifest.get("agent"):
+            self._replace_directory(backup / "agent", self.config.agent_install_dir)
+        else:
+            shutil.rmtree(self.config.agent_install_dir, ignore_errors=True)
+
+    def _schedule_agent_restart(self) -> None:
+        if not Path(self.config.systemd_run_binary).is_file():
+            LOGGER.warning("event=host_agent_restart_deferred reason=systemd_run_unavailable")
+            return
+        unit = f"wolt-host-agent-refresh-{int(time.time())}"
+        try:
+            self._run([
+                self.config.systemd_run_binary,
+                f"--unit={unit}",
+                "--on-active=5s",
+                self.config.systemctl_binary,
+                "restart",
+                "wolt-host-agent.service",
+            ], timeout=20)
+        except AgentError:
+            LOGGER.warning("event=host_agent_restart_deferred reason=schedule_failed")
+
+    def _save_job(self, job: dict[str, Any]) -> None:
+        with self.jobs_lock:
+            self.jobs[job["id"]] = dict(job)
+        state = self.store.read()
+        jobs = state.setdefault("jobs", {})
+        jobs[job["id"]] = dict(job)
+        if len(jobs) > 20:
+            for old_id in list(jobs)[:-20]:
+                jobs.pop(old_id, None)
+        self.store.write(state)
+
     def start_job(self, operation: str, payload: dict[str, Any]) -> dict[str, str]:
         if operation not in {"deployment", "upgrade", "rollback"}:
             raise AgentError("unsupported_host_operation")
@@ -382,17 +565,22 @@ class HostController:
             if any(job["status"] == "running" for job in self.jobs.values()):
                 raise AgentError("host_operation_in_progress", 409)
             job_id = str(uuid.uuid4())
-            self.jobs[job_id] = {"id": job_id, "operation": operation, "status": "running", "error": None}
+            job = {"id": job_id, "operation": operation, "status": "running", "error": None}
+        self._save_job(job)
         threading.Thread(target=self._execute_job, args=(job_id, operation, payload), daemon=True).start()
         return {"job_id": job_id}
 
     def job(self, job_id: str) -> dict[str, Any]:
         with self.jobs_lock:
-            if job_id not in self.jobs:
-                raise AgentError("host_job_not_found", 404)
-            return dict(self.jobs[job_id])
+            if job_id in self.jobs:
+                return dict(self.jobs[job_id])
+        persisted = self.store.read().get("jobs", {}).get(job_id)
+        if not isinstance(persisted, dict):
+            raise AgentError("host_job_not_found", 404)
+        return dict(persisted)
 
     def _execute_job(self, job_id: str, operation: str, payload: dict[str, Any]) -> None:
+        restart_agent = False
         try:
             if operation == "deployment":
                 source, start, end = self._network_values(
@@ -422,23 +610,52 @@ class HostController:
                     raise AgentError("invalid_release_version")
                 old = self._env_values()
                 old_image = old.get("WOLT_IMAGE") or self._current_image()
+                old_version = old.get("WOLT_VERSION", "unknown")
                 new_image = self._verified_image(version)
-                backup = self._database_backup()
                 self._run([self.config.docker_binary, "pull", new_image], timeout=600)
-                self._update_env({"WOLT_IMAGE": new_image})
-                self._compose("up", "-d", "--no-build", "app", timeout=600)
-                if not self._healthy():
-                    self._update_env({"WOLT_IMAGE": old_image})
-                    self._database_restore(backup)
+                staging = self._extract_runtime(new_image, version)
+                backup: Path | None = None
+                runtime_backup: Path | None = None
+                try:
+                    backup = self._database_backup()
+                    runtime_backup = self._deploy_runtime(staging)
+                    canonical_version = version if version.startswith("v") else f"v{version}"
+                    self._update_env({"WOLT_IMAGE": new_image, "WOLT_VERSION": canonical_version})
                     self._compose("up", "-d", "--no-build", "app", timeout=600)
-                    raise AgentError("upgrade_health_check_failed", 502)
+                    if not self._healthy():
+                        raise AgentError("upgrade_health_check_failed", 502)
+                except Exception:
+                    if runtime_backup is not None and backup is not None:
+                        try:
+                            self._update_env({"WOLT_IMAGE": old_image, "WOLT_VERSION": old_version})
+                            self._restore_runtime(runtime_backup)
+                            self._database_restore(backup)
+                            self._compose("up", "-d", "--no-build", "app", timeout=600)
+                        except Exception as rollback_exc:
+                            LOGGER.critical(
+                                "event=automatic_upgrade_rollback_failed exception_type=%s",
+                                type(rollback_exc).__name__,
+                            )
+                    raise
+                finally:
+                    shutil.rmtree(staging, ignore_errors=True)
+                if backup is None or runtime_backup is None:
+                    raise AgentError("host_operation_failed", 502)
                 state = self.store.read()
                 previous_backup = state.get("rollback", {}).get("database_backup")
                 if previous_backup:
                     Path(previous_backup).unlink(missing_ok=True)
-                state["rollback"] = {"env": {"WOLT_IMAGE": old_image}, "database_backup": str(backup)}
+                previous_runtime = state.get("rollback", {}).get("runtime_backup")
+                if previous_runtime:
+                    shutil.rmtree(previous_runtime, ignore_errors=True)
+                state["rollback"] = {
+                    "env": {"WOLT_IMAGE": old_image, "WOLT_VERSION": old_version},
+                    "database_backup": str(backup),
+                    "runtime_backup": str(runtime_backup),
+                }
                 state["last_successful"] = {"image": new_image, "at": int(time.time())}
                 self.store.write(state)
+                restart_agent = True
             else:
                 state = self.store.read(); rollback = state.get("rollback")
                 if not rollback:
@@ -447,6 +664,9 @@ class HostController:
                 if not rollback_env:
                     raise AgentError("rollback_not_available")
                 self._update_env({key: str(value) for key, value in rollback_env.items()})
+                if rollback.get("runtime_backup"):
+                    self._restore_runtime(Path(rollback["runtime_backup"]))
+                    restart_agent = True
                 if rollback.get("database_backup"):
                     self._database_restore(Path(rollback["database_backup"]))
                 if "firewall" in rollback:
@@ -458,13 +678,23 @@ class HostController:
                 self._compose("up", "-d", "--no-build", "app", timeout=600)
                 if not self._healthy():
                     raise AgentError("rollback_health_check_failed", 502)
-            with self.jobs_lock:
-                self.jobs[job_id]["status"] = "succeeded"
+            completed = {
+                "id": job_id, "operation": operation,
+                "status": "succeeded", "error": None,
+            }
+            self._save_job(completed)
+            if restart_agent:
+                self._schedule_agent_restart()
         except Exception as exc:
             detail = exc.detail if isinstance(exc, AgentError) else "host_operation_failed"
-            with self.jobs_lock:
-                self.jobs[job_id]["status"] = "failed"
-                self.jobs[job_id]["error"] = detail
+            LOGGER.error(
+                "event=host_job_failed operation=%s reason=%s exception_type=%s",
+                operation, detail, type(exc).__name__,
+            )
+            self._save_job({
+                "id": job_id, "operation": operation,
+                "status": "failed", "error": detail,
+            })
 
 
 class AgentRequestHandler(BaseHTTPRequestHandler):
@@ -548,6 +778,10 @@ class AgentServer(socketserver.ThreadingUnixStreamServer):
 
 
 def main() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s level=%(levelname)s logger=%(name)s %(message)s",
+    )
     parser = argparse.ArgumentParser(description="Restricted WOLT host agent")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()

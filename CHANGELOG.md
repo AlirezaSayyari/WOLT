@@ -2,6 +2,28 @@
 
 All notable changes follow Keep a Changelog and semantic versioning.
 
+## [1.1.0] - 2026-07-20
+
+### Added
+
+- Clone-free one-line installation from the signed Docker image; Git and a source checkout are no longer required on the server.
+- A minimal image-embedded host runtime containing Compose definitions, Host Agent code, installers, and an explicit `VERSION` contract.
+- Automatic checksum-verified Cosign installation for `linux/amd64` and `linux/arm64` hosts.
+- Runtime-aware UI upgrades and rollback, including persistent job results across Host Agent restarts.
+- GitHub release assets for the version-matched installer and its SHA-256 checksum.
+
+### Changed
+
+- Production Compose now requires an explicit published image or immutable digest and can no longer fall back to `wolt:dev`.
+- Fresh installations pin `WOLT_IMAGE` to the digest verified through the official GitHub release workflow.
+- UI upgrades refresh the server-side Compose and Host Agent runtime while preserving `.env.web`, certificates, PostgreSQL data, and backups.
+- Docker Hub release discovery now lists canonical semantic-version tags only.
+
+### Fixed
+
+- Upgrades can no longer leave server-side deployment files behind while only replacing the application container.
+- Host Agent jobs retain their final result when a successful upgrade restarts the agent service.
+
 ## [1.0.1] - 2026-07-19
 
 ### Added

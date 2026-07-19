@@ -32,6 +32,18 @@ jobs:
           target: production
           load: true
           tags: wolt:ci
+      - name: Validate embedded host runtime
+        run: |
+          container="$(docker create wolt:ci /bin/true)"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          mkdir -p /tmp/wolt-runtime
+          docker cp "$container:/opt/wolt-runtime/." /tmp/wolt-runtime
+          test "$(cat /tmp/wolt-runtime/VERSION)" = "v1.1.0"
+          test -f /tmp/wolt-runtime/compose.web.yml
+          test -f /tmp/wolt-runtime/compose.host-agent.yml
+          test -f /tmp/wolt-runtime/scripts/install-cosign.sh
+          test -f /tmp/wolt-runtime/scripts/install-host-agent.sh
+          test -f /tmp/wolt-runtime/host_agent/server.py
       - name: Validate PostgreSQL migrations
         run: |
           docker network create wolt-ci
