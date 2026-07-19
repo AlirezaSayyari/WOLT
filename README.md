@@ -19,7 +19,7 @@ Translate standard Wake-on-LAN magic packets from Guacamole or another PAM syste
 
 The installer generates the database, bootstrap, and encryption secrets locally; pulls the signed web image; starts PostgreSQL and WOLT; and prints the one-time Owner setup token. Docker Engine, Docker Compose v2, Git, and OpenSSL must already be installed.
 
-> Current stable image: `alirezasayyari/wolt:v1.0.0` (also published as `1.0.0` and `latest`)
+> Current stable image: `alirezasayyari/wolt:v1.0.1` (also published as `1.0.1` and `latest`)
 
 ---
 
@@ -48,7 +48,7 @@ The one-line installer starts the published image. For a source checkout, run:
 
 ```bash
 ./scripts/init-web-env.sh
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
   docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 
@@ -98,6 +98,30 @@ Then use **Users & sessions** to invite an Administrator or Operator; recipients
 own password through a 24-hour single-use link. Email password recovery uses a 30-minute
 single-use link and revokes all existing sessions. The original Owner offline recovery code
 remains available when email is unavailable.
+
+If the SMTP server uses a certificate issued by a private corporate CA, copy the CA/root
+bundle in PEM format to `certs/smtp-ca.pem` and add this line to `.env.web`:
+
+```dotenv
+WOLT_SMTP_CA_FILE=/etc/wolt/certs/smtp-ca.pem
+```
+
+Then recreate only the application container:
+
+```bash
+docker compose --env-file .env.web -f compose.web.yml up -d --no-build --force-recreate app
+```
+
+Keep certificate verification enabled. Use the issuing root/intermediate CA bundle rather
+than disabling TLS validation or permanently trusting a replaceable server leaf certificate.
+
+For a deliberately plaintext, IP-restricted internal relay, select **None — trusted internal
+relay** in the SMTP page. This works on any configured port, including 587, and performs no
+TLS handshake or certificate validation. Credentials and message content are unencrypted in
+this mode, so do not use it across untrusted or routed networks. Leaving the username blank
+also skips SMTP authentication for relays that authorize the WOLT host by source IP. A
+connector that advertises only NTLM/GSSAPI authentication is not made compatible merely by
+disabling TLS; use an IP-authorized relay or a supported SMTP AUTH mechanism.
 
 ### Optional restricted Host Agent
 
@@ -266,12 +290,12 @@ Published images support `linux/amd64` and `linux/arm64`.
 Use this path when you want to review the deployment files instead of using the one-line installer.
 
 ```bash
-git clone --branch v1.0.0 --depth 1 https://github.com/AlirezaSayyari/WOLT.git
+git clone --branch v1.0.1 --depth 1 https://github.com/AlirezaSayyari/WOLT.git
 cd WOLT
 ./scripts/init-web-env.sh
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
   docker compose --env-file .env.web -f compose.web.yml pull
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
   docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 
@@ -292,9 +316,10 @@ managed in the UI.
 | `WOLT_WEB_PORT` | No | `8080` | Web UI and API TCP port |
 | `WOLT_SESSION_SECURE` | Production HTTPS | `false` | Requires Secure browser cookies when set to `true` |
 | `WOLT_SESSION_HOURS` | No | `12` | Server-side session lifetime |
+| `WOLT_SMTP_CA_FILE` | No | system trust store | PEM CA bundle used in addition to public system CAs for SMTP TLS |
 | `WOLT_UDP_PUBLISHED_START` | No | `40000` | First Docker-published listener port; must be at least 1024 |
 | `WOLT_UDP_PUBLISHED_END` | No | `40099` | Last Docker-published listener port; maximum range size is 100 |
-| `WOLT_IMAGE` | No | local development image | Published image, normally `alirezasayyari/wolt:v1.0.0` |
+| `WOLT_IMAGE` | No | local development image | Published image, normally `alirezasayyari/wolt:v1.0.1` |
 
 ## Guacamole configuration
 
@@ -338,9 +363,9 @@ sudo tcpdump -ni any 'udp portrange 40000-40099' -s0 -vvv -XX
 ```bash
 cd /opt/wolt
 ./scripts/upgrade-web-env.sh
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
   docker compose --env-file .env.web -f compose.web.yml pull
-WOLT_IMAGE=alirezasayyari/wolt:v1.0.0 \
+WOLT_IMAGE=alirezasayyari/wolt:v1.0.1 \
   docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 

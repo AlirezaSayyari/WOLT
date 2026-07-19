@@ -6,7 +6,7 @@ services:
       context: .
       target: production
       args:
-        WOLT_VERSION: ${WOLT_VERSION:-v1.0.0-dev}
+        WOLT_VERSION: ${WOLT_VERSION:-v1.0.1-dev}
         WOLT_COMMIT_SHA: ${WOLT_COMMIT_SHA:-local}
         WOLT_BUILD_DATE: ${WOLT_BUILD_DATE:-unknown}
     image: ${WOLT_IMAGE:-wolt:dev}
@@ -26,6 +26,7 @@ services:
       WOLT_MASTER_KEY: ${WOLT_MASTER_KEY:-}
       WOLT_SESSION_SECURE: ${WOLT_SESSION_SECURE:-false}
       WOLT_SESSION_HOURS: ${WOLT_SESSION_HOURS:-12}
+      WOLT_SMTP_CA_FILE: ${WOLT_SMTP_CA_FILE:-}
       WOLT_UDP_PUBLISHED_START: ${WOLT_UDP_PUBLISHED_START:-40000}
       WOLT_UDP_PUBLISHED_END: ${WOLT_UDP_PUBLISHED_END:-40099}
     ports:
@@ -49,6 +50,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
+    volumes:
+      - ./certs:/etc/wolt/certs:ro
     security_opt:
       - no-new-privileges:true
     networks:

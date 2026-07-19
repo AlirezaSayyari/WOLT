@@ -163,7 +163,7 @@ class HostController:
             except AgentError:
                 pass
         return {
-            "agent_version": "1.0.0", "ufw_available": ufw_available,
+            "agent_version": "1.0.1", "ufw_available": ufw_available,
             "ufw_active": ufw_active, "docker_available": docker_available,
             "cosign_available": cosign_available,
             "image_repository": self.config.image_repository,

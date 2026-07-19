@@ -28,6 +28,7 @@ from app.web.observability_routes import create_observability_router
 from app.application.identity_service import IdentityService
 from app.web.identity_routes import create_identity_router
 from app.infrastructure.host_agent import HostAgentClient
+from app.infrastructure.email import SmtpMailer
 from app.web.host_routes import create_host_router
 
 
@@ -120,7 +121,11 @@ def create_app(
         )
         retention_service = RetentionService(resolved_database)
         retention_worker = RetentionWorker(retention_service)
-        identity_service = IdentityService(resolved_database, cipher)
+        identity_service = IdentityService(
+            resolved_database,
+            cipher,
+            mailer=SmtpMailer(ca_file=resolved_settings.smtp_ca_file),
+        )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:

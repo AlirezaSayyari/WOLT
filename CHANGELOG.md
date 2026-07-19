@@ -2,6 +2,17 @@
 
 All notable changes follow Keep a Changelog and semantic versioning.
 
+## [1.0.1] - 2026-07-19
+
+### Added
+
+- Optional private CA bundle support for SMTP STARTTLS and implicit TLS deployments.
+
+### Fixed
+
+- SMTP failures now emit a credential-safe reason and delivery stage in application logs.
+- Plain SMTP now bypasses TLS context and custom-CA loading completely, including on port 587.
+
 ## [1.0.0] - 2026-07-18
 
 ### Added
