@@ -24,7 +24,7 @@ clone the repository. Docker Engine, Docker Compose v2, curl, OpenSSL, Python 3,
 `sha256sum` must already be installed; the installer adds a checksum-verified Cosign binary
 when needed.
 
-> Current stable image: `alirezasayyari/wolt:v1.1.1` (also published as `1.1.1`, `1.1`, and `latest`)
+> Current stable image: `alirezasayyari/wolt:v1.1.2` (also published as `1.1.2`, `1.1`, and `latest`)
 
 ---
 
@@ -54,7 +54,7 @@ a source checkout, build an image explicitly and then start it:
 
 ```bash
 ./scripts/init-web-env.sh
-docker build --target production --build-arg WOLT_VERSION=v1.1.1-dev -t wolt:local .
+docker build --target production --build-arg WOLT_VERSION=v1.1.2-dev -t wolt:local .
 WOLT_IMAGE=wolt:local docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 
@@ -71,14 +71,15 @@ must remain between `1024` and `65535`, and a deployment range may contain at mo
 ports. The active allocation range can then be narrowed from the Settings page without
 recreating the container.
 
-### One-time migration from v1.0.x
+### One-time migration from v1.0.x–v1.1.1
 
-An existing source-based installation can move to the minimal v1.1 runtime without losing
-its environment, certificates, PostgreSQL volume, or Host Agent backups. Run this once from
-any directory:
+An existing source-based installation can move to the minimal runtime without losing its
+environment, certificates, PostgreSQL volume, or Host Agent backups. The same command repairs
+the Host Agent service boundary for v1.1.0 or v1.1.1 installations. Run it once from any
+directory:
 
 ```bash
-curl -fsSL https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.1/install.sh | \
+curl -fsSL https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.2/install.sh | \
   sudo bash -s -- --install-dir /data/WOLT --upgrade-existing
 ```
 
@@ -310,8 +311,8 @@ Every GitHub release contains the exact installer used for that version and its 
 To review and verify it before execution:
 
 ```bash
-curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.1/install.sh
-curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.1/install.sh.sha256
+curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.2/install.sh
+curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.2/install.sh.sha256
 sha256sum --check install.sh.sha256
 sudo bash install.sh --install-dir /data/WOLT
 ```

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly WOLT_RELEASE_VERSION="${WOLT_VERSION:-1.1.1}"
+readonly WOLT_RELEASE_VERSION="${WOLT_VERSION:-1.1.2}"
 readonly WOLT_IMAGE_REPOSITORY="${WOLT_IMAGE_REPOSITORY:-alirezasayyari/wolt}"
 readonly WOLT_INSTALL_DIR_DEFAULT="${WOLT_INSTALL_DIR:-/data/WOLT}"
 readonly COSIGN_VERSION="v3.1.2"

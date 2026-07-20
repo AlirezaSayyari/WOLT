@@ -182,15 +182,17 @@ class HostController:
         docker_available = Path(self.config.docker_binary).is_file()
         cosign_available = Path(self.config.cosign_binary).is_file()
         ufw_active = False
+        ufw_status_error = False
         if ufw_available:
             try:
                 output = self._run([self.config.ufw_binary, "status"], timeout=10).stdout
                 ufw_active = "Status: active" in output
             except AgentError:
-                pass
+                ufw_status_error = True
         return {
-            "agent_version": "1.1.1", "ufw_available": ufw_available,
-            "ufw_active": ufw_active, "docker_available": docker_available,
+            "agent_version": "1.1.2", "ufw_available": ufw_available,
+            "ufw_active": ufw_active, "ufw_status_error": ufw_status_error,
+            "docker_available": docker_available,
             "cosign_available": cosign_available,
             "image_repository": self.config.image_repository,
             "managed_firewall": state.get("firewall"),
@@ -219,13 +221,13 @@ class HostController:
             "udp_start": preview["udp_start"], "udp_end": preview["udp_end"],
         }
         if previous and previous != current:
-            self._run(self._ufw_rule(
+            self._run_ufw(self._ufw_rule(
                 previous["source_ip"], int(previous["udp_start"]),
                 int(previous["udp_end"]), delete=True,
-            ), timeout=20)
-        self._run(self._ufw_rule(
+            ))
+        self._run_ufw(self._ufw_rule(
             current["source_ip"], current["udp_start"], current["udp_end"]
-        ), timeout=20)
+        ))
         state = self.store.read()
         state["firewall"] = current
         self.store.write(state)
@@ -235,12 +237,18 @@ class HostController:
         state = self.store.read()
         current = state.get("firewall")
         if current:
-            self._run(self._ufw_rule(
+            self._run_ufw(self._ufw_rule(
                 current["source_ip"], int(current["udp_start"]),
                 int(current["udp_end"]), delete=True,
-            ), timeout=20)
+            ))
             state.pop("firewall", None)
             self.store.write(state)
+
+    def _run_ufw(self, arguments: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return self._run(arguments, timeout=20)
+        except AgentError as exc:
+            raise AgentError("firewall_command_failed", 502) from exc
 
     def releases(self) -> dict[str, Any]:
         namespace, repository = self.config.image_repository.split("/", 1)
@@ -386,12 +394,15 @@ class HostController:
         if not Path(self.config.cosign_binary).is_file():
             raise AgentError("signature_verification_unavailable", 503)
         tagged_image = f"{self.config.image_repository}:{version}"
-        result = self._run([
-            self.config.cosign_binary, "verify", "--output", "json",
-            "--certificate-identity-regexp", self.config.signing_identity,
-            "--certificate-oidc-issuer", self.config.signing_issuer,
-            tagged_image,
-        ], timeout=120)
+        try:
+            result = self._run([
+                self.config.cosign_binary, "verify", "--output", "json",
+                "--certificate-identity-regexp", self.config.signing_identity,
+                "--certificate-oidc-issuer", self.config.signing_issuer,
+                tagged_image,
+            ], timeout=120)
+        except AgentError as exc:
+            raise AgentError("signature_verification_failed", 502) from exc
         try:
             entries = json.loads(result.stdout)
             digest = entries[0]["critical"]["image"]["docker-manifest-digest"]
@@ -530,22 +541,25 @@ class HostController:
         else:
             shutil.rmtree(self.config.agent_install_dir, ignore_errors=True)
 
-    def _schedule_agent_restart(self) -> None:
+    def _schedule_agent_refresh(self) -> None:
         if not Path(self.config.systemd_run_binary).is_file():
-            LOGGER.warning("event=host_agent_restart_deferred reason=systemd_run_unavailable")
+            LOGGER.warning("event=host_agent_refresh_deferred reason=systemd_run_unavailable")
             return
         unit = f"wolt-host-agent-refresh-{int(time.time())}"
+        installer = self.config.runtime_dir / "scripts" / "install-host-agent.sh"
+        if not installer.is_file():
+            LOGGER.warning("event=host_agent_refresh_deferred reason=installer_unavailable")
+            return
         try:
             self._run([
                 self.config.systemd_run_binary,
                 f"--unit={unit}",
                 "--on-active=5s",
-                self.config.systemctl_binary,
-                "restart",
-                "wolt-host-agent.service",
+                str(installer),
+                str(self.config.project_dir),
             ], timeout=20)
         except AgentError:
-            LOGGER.warning("event=host_agent_restart_deferred reason=schedule_failed")
+            LOGGER.warning("event=host_agent_refresh_deferred reason=schedule_failed")
 
     def _save_job(self, job: dict[str, Any]) -> None:
         with self.jobs_lock:
@@ -684,7 +698,7 @@ class HostController:
             }
             self._save_job(completed)
             if restart_agent:
-                self._schedule_agent_restart()
+                self._schedule_agent_refresh()
         except Exception as exc:
             detail = exc.detail if isinstance(exc, AgentError) else "host_operation_failed"
             LOGGER.error(

@@ -38,11 +38,19 @@ WEB_PORT="${WEB_PORT:-8080}"
 install -d -m 0755 /opt/wolt-host-agent/host_agent
 install -m 0644 "$RUNTIME_DIR/host_agent/__init__.py" /opt/wolt-host-agent/host_agent/__init__.py
 install -m 0644 "$RUNTIME_DIR/host_agent/server.py" /opt/wolt-host-agent/host_agent/server.py
-install -d -m 0700 /var/lib/wolt-agent
+install -d -m 0700 /var/lib/wolt-agent /var/lib/wolt-agent/home
 install -d -m 0750 -o root -g wolt-agent /run/wolt-agent
+
+# UFW serializes all host changes through this shared lock. ProtectSystem=strict
+# keeps the rest of /run read-only, so create and expose only the exact lock file.
+cat > /etc/tmpfiles.d/wolt-host-agent.conf <<'EOF'
+f /run/ufw.lock 0600 root root -
+EOF
+systemd-tmpfiles --create /etc/tmpfiles.d/wolt-host-agent.conf
 
 cat > /etc/wolt-host-agent.env <<EOF
 PYTHONPATH=/opt/wolt-host-agent
+HOME=/var/lib/wolt-agent/home
 WOLT_HOST_AGENT_TOKEN=$TOKEN
 WOLT_HOST_AGENT_GID=$AGENT_GID
 WOLT_PROJECT_DIR=$PROJECT_DIR
@@ -73,7 +81,7 @@ RestartSec=3
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=$PROJECT_DIR /opt/wolt-host-agent /run/wolt-agent /var/lib/wolt-agent -/etc/ufw -/var/lib/ufw
+ReadWritePaths=$PROJECT_DIR /opt/wolt-host-agent /run/wolt-agent /run/ufw.lock /var/lib/wolt-agent -/etc/ufw -/var/lib/ufw
 ProtectHome=yes
 
 [Install]
@@ -97,7 +105,8 @@ upsert_env WOLT_HOST_AGENT_TOKEN "$TOKEN"
 upsert_env WOLT_HOST_AGENT_GID "$AGENT_GID"
 
 systemctl daemon-reload
-systemctl enable --now wolt-host-agent.service
+systemctl enable wolt-host-agent.service
+systemctl restart wolt-host-agent.service
 docker compose --project-directory "$PROJECT_DIR" --env-file "$ENV_FILE" \
   -f "$PROJECT_DIR/compose.web.yml" -f "$PROJECT_DIR/compose.host-agent.yml" \
   up -d --no-build app

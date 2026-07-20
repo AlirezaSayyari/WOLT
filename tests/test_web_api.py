@@ -69,7 +69,7 @@ def test_system_info_reports_build_and_schema_metadata(tmp_path: Path) -> None:
         response = client.get("/api/v1/system/info")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "v1.1.1-dev"
+    assert response.json()["version"] == "v1.1.2-dev"
     assert response.json()["commit_sha"] == "local"
     assert response.json()["schema_revision"] == "20260718_05"
 

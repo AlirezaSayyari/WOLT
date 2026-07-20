@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Keep release metadata after dependency installation so changing a version or
 # commit SHA does not invalidate the expensive Python dependency layer.
-ARG WOLT_VERSION=v1.1.1
+ARG WOLT_VERSION=v1.1.2
 ARG WOLT_COMMIT_SHA=local
 ARG WOLT_BUILD_DATE=unknown
 
