@@ -189,7 +189,7 @@ class HostController:
             except AgentError:
                 pass
         return {
-            "agent_version": "1.1.0", "ufw_available": ufw_available,
+            "agent_version": "1.1.1", "ufw_available": ufw_available,
             "ufw_active": ufw_active, "docker_available": docker_available,
             "cosign_available": cosign_available,
             "image_repository": self.config.image_repository,
@@ -753,7 +753,7 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
 
     def _handle(self) -> None:
         if not self._authorized():
-            self._response(401, {"detail": "unauthorized"})
+            self._response(401, {"detail": "host_agent_unauthorized"})
             return
         try:
             self._response(200, self._dispatch())

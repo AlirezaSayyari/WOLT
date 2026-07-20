@@ -38,7 +38,7 @@ jobs:
           trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
           mkdir -p /tmp/wolt-runtime
           docker cp "$container:/opt/wolt-runtime/." /tmp/wolt-runtime
-          test "$(cat /tmp/wolt-runtime/VERSION)" = "v1.1.0"
+          test "$(cat /tmp/wolt-runtime/VERSION)" = "v1.1.1"
           test -f /tmp/wolt-runtime/compose.web.yml
           test -f /tmp/wolt-runtime/compose.host-agent.yml
           test -f /tmp/wolt-runtime/scripts/install-cosign.sh

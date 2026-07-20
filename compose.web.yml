@@ -6,7 +6,7 @@ services:
       context: .
       target: production
       args:
-        WOLT_VERSION: ${WOLT_VERSION:-v1.1.0-dev}
+        WOLT_VERSION: ${WOLT_VERSION:-v1.1.1-dev}
         WOLT_COMMIT_SHA: ${WOLT_COMMIT_SHA:-local}
         WOLT_BUILD_DATE: ${WOLT_BUILD_DATE:-unknown}
     image: ${WOLT_IMAGE:?Set WOLT_IMAGE to a published WOLT release or digest}

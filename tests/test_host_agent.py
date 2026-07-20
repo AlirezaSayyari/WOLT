@@ -32,7 +32,7 @@ def config(tmp_path: Path, token: str = "a" * 64) -> AgentConfig:
     )
 
 
-def runtime_bundle(root: Path, version: str = "v1.1.0") -> Path:
+def runtime_bundle(root: Path, version: str = "v1.1.1") -> Path:
     root.mkdir()
     (root / "scripts").mkdir()
     (root / "host_agent").mkdir()
@@ -154,12 +154,12 @@ def test_runtime_deployment_preserves_user_state_and_can_restore(tmp_path: Path)
     source = runtime_bundle(tmp_path / "bundle")
     controller = HostController(agent_config)
 
-    controller._validate_runtime(source, "v1.1.0")
+    controller._validate_runtime(source, "v1.1.1")
     backup = controller._deploy_runtime(source)
 
     assert (agent_config.project_dir / ".env.web").read_text().startswith("POSTGRES_PASSWORD=do-not-touch")
     assert (certs / "smtp-ca.pem").read_text() == "private ca"
-    assert (agent_config.project_dir / "VERSION").read_text() == "v1.1.0"
+    assert (agent_config.project_dir / "VERSION").read_text() == "v1.1.1"
     assert (agent_config.runtime_dir / "scripts" / "install-host-agent.sh").stat().st_mode & 0o777 == 0o755
     assert (agent_config.agent_install_dir / "server.py").read_text() == "VERSION = 'new'\n"
 
@@ -175,11 +175,11 @@ def test_runtime_validation_rejects_mismatch_and_symlink(tmp_path: Path) -> None
     controller = HostController(config(tmp_path))
     source = runtime_bundle(tmp_path / "bundle", version="v9.9.9")
     with pytest.raises(AgentError, match="runtime_bundle_version_mismatch"):
-        controller._validate_runtime(source, "v1.1.0")
+        controller._validate_runtime(source, "v1.1.1")
     (source / "VERSION").unlink()
     (source / "VERSION").symlink_to(source / "compose.web.yml")
     with pytest.raises(AgentError, match="runtime_bundle_invalid"):
-        controller._validate_runtime(source, "v1.1.0")
+        controller._validate_runtime(source, "v1.1.1")
 
 
 def test_completed_job_survives_agent_restart(tmp_path: Path) -> None:
@@ -219,7 +219,7 @@ def test_upgrade_compose_failure_restores_runtime_environment_and_database(
     controller._run = lambda _arguments, timeout=120: subprocess.CompletedProcess([], 0, "", "")  # type: ignore[method-assign]
     controller._compose = lambda *_args, **_kwargs: (_ for _ in ()).throw(AgentError("host_command_failed", 502))  # type: ignore[method-assign]
 
-    controller._execute_job("upgrade-job", "upgrade", {"version": "v1.1.0"})
+    controller._execute_job("upgrade-job", "upgrade", {"version": "v1.1.1"})
 
     assert controller.job("upgrade-job")["status"] == "failed"
     assert controller.job("upgrade-job")["error"] == "host_command_failed"
@@ -236,10 +236,11 @@ def test_unix_socket_requires_bearer_token(tmp_path: Path) -> None:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        assert HostAgentClient(agent_config.socket_path, agent_config.token).request("GET", "/v1/status")["agent_version"] == "1.1.0"
+        assert HostAgentClient(agent_config.socket_path, agent_config.token).request("GET", "/v1/status")["agent_version"] == "1.1.1"
         with pytest.raises(HostAgentError) as error:
             HostAgentClient(agent_config.socket_path, "wrong" * 10).request("GET", "/v1/status")
         assert error.value.status == 401
+        assert error.value.detail == "host_agent_unauthorized"
     finally:
         server.shutdown()
         server.server_close()
