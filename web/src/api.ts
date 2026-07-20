@@ -54,6 +54,7 @@ export interface HostStatus {
   agent_version: string
   ufw_available: boolean
   ufw_active: boolean
+  ufw_status_error: boolean
   docker_available: boolean
   cosign_available: boolean
   image_repository: string
@@ -259,9 +260,7 @@ export async function downloadEventsCsv(values: Record<string, string | number |
   URL.revokeObjectURL(url)
 }
 
-export function readableError(error: unknown): string {
-  if (!(error instanceof ApiError)) return 'The service could not be reached. Try again.'
-  const messages: Record<string, string> = {
+const errorMessages: Record<string, string> = {
     bootstrap_token_not_configured: 'A bootstrap token has not been configured on the server.',
     invalid_bootstrap_token: 'The bootstrap token is not valid.',
     setup_already_completed: 'The Owner account has already been created.',
@@ -280,6 +279,7 @@ export function readableError(error: unknown): string {
     host_agent_unauthorized: 'The Host Agent token does not match the app. Run the Host Agent repair command, then recreate the app container.',
     host_operation_in_progress: 'Another host operation is already running.',
     host_command_failed: 'A restricted host command failed. Review the Host Agent journal.',
+    firewall_command_failed: 'UFW could not apply the managed rule. Review the Host Agent journal.',
     release_discovery_failed: 'Docker Hub release discovery failed.',
     invalid_release_version: 'Select a valid semantic release version.',
     rollback_not_available: 'No verified previous deployment is available for rollback.',
@@ -318,5 +318,12 @@ export function readableError(error: unknown): string {
     udp_range_outside_published_range: 'The active range must stay inside the ports published by Docker.',
     udp_range_excludes_existing_listeners: 'Move or remove listeners outside the new range before saving it.',
   }
-  return messages[error.detail] ?? 'The request could not be completed.'
+
+export function readableDetail(detail: string): string {
+  return errorMessages[detail] ?? 'The request could not be completed.'
+}
+
+export function readableError(error: unknown): string {
+  if (!(error instanceof ApiError)) return 'The service could not be reached. Try again.'
+  return readableDetail(error.detail)
 }

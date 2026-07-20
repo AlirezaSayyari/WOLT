@@ -2,6 +2,20 @@
 
 All notable changes follow Keep a Changelog and semantic versioning.
 
+## [1.1.2] - 2026-07-20
+
+### Fixed
+
+- The restricted Host Agent now has a persistent writable home for Cosign trust metadata.
+- UFW can share its exact host lock file from the hardened systemd namespace without making all of `/run` writable.
+- Host Operations distinguishes a UFW status-command error from an actually inactive firewall.
+- Successful deployment and upgrade jobs retry through the expected app/Agent restart window instead of retaining a transient socket error.
+- Persisted Host Agent job error codes are rendered as actionable UI messages.
+
+### Changed
+
+- Runtime upgrades schedule the versioned Host Agent installer so future service-unit and environment changes are applied automatically.
+
 ## [1.1.1] - 2026-07-20
 
 ### Fixed

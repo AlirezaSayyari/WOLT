@@ -52,3 +52,13 @@ def test_host_operations_ui_uses_the_minimal_runtime_repair_path() -> None:
 
     assert "sudo /data/WOLT/runtime/scripts/install-host-agent.sh /data/WOLT" in bundle
     assert "sudo ./scripts/install-host-agent.sh /data/WOLT" not in bundle
+
+
+def test_host_agent_installer_allows_only_required_runtime_state() -> None:
+    script = (ROOT / "scripts" / "install-host-agent.sh").read_text(encoding="utf-8")
+
+    assert "HOME=/var/lib/wolt-agent/home" in script
+    assert "f /run/ufw.lock 0600 root root -" in script
+    assert "ReadWritePaths=" in script
+    assert "/run/ufw.lock" in script
+    assert "systemctl restart wolt-host-agent.service" in script
