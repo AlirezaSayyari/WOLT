@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ ${EUID} -ne 0 ]]; then
-  echo "Run this installer as root: sudo ./scripts/install-host-agent.sh" >&2
+  echo "Run this installer as root: sudo ${BASH_SOURCE[0]} /path/to/WOLT" >&2
   exit 1
 fi
 

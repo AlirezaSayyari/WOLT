@@ -24,7 +24,7 @@ clone the repository. Docker Engine, Docker Compose v2, curl, OpenSSL, Python 3,
 `sha256sum` must already be installed; the installer adds a checksum-verified Cosign binary
 when needed.
 
-> Current stable image: `alirezasayyari/wolt:v1.1.0` (also published as `1.1.0`, `1.1`, and `latest`)
+> Current stable image: `alirezasayyari/wolt:v1.1.1` (also published as `1.1.1`, `1.1`, and `latest`)
 
 ---
 
@@ -54,7 +54,7 @@ a source checkout, build an image explicitly and then start it:
 
 ```bash
 ./scripts/init-web-env.sh
-docker build --target production --build-arg WOLT_VERSION=v1.1.0-dev -t wolt:local .
+docker build --target production --build-arg WOLT_VERSION=v1.1.1-dev -t wolt:local .
 WOLT_IMAGE=wolt:local docker compose --env-file .env.web -f compose.web.yml up -d --no-build
 ```
 
@@ -78,7 +78,7 @@ its environment, certificates, PostgreSQL volume, or Host Agent backups. Run thi
 any directory:
 
 ```bash
-curl -fsSL https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.0/install.sh | \
+curl -fsSL https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.1/install.sh | \
   sudo bash -s -- --install-dir /data/WOLT --upgrade-existing
 ```
 
@@ -140,6 +140,16 @@ For a source-development installation, install it manually with:
 ```bash
 sudo ./scripts/install-host-agent.sh "$(pwd)"
 ```
+
+For a published minimal installation under `/data/WOLT`, repair or reinstall the Host
+Agent with:
+
+```bash
+sudo /data/WOLT/runtime/scripts/install-host-agent.sh /data/WOLT
+```
+
+This command preserves the existing Host Agent token, refreshes its systemd service, and
+recreates the app container with the authenticated Unix-socket override.
 
 The app container remains non-root and never receives the Docker socket. Communication uses
 an authenticated, group-restricted Unix socket. Upgrade images are accepted only after Cosign
@@ -300,8 +310,8 @@ Every GitHub release contains the exact installer used for that version and its 
 To review and verify it before execution:
 
 ```bash
-curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.0/install.sh
-curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.0/install.sh.sha256
+curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.1/install.sh
+curl -fLO https://github.com/AlirezaSayyari/WOLT/releases/download/v1.1.1/install.sh.sha256
 sha256sum --check install.sh.sha256
 sudo bash install.sh --install-dir /data/WOLT
 ```

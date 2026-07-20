@@ -42,3 +42,13 @@ def test_production_image_contains_the_minimal_runtime_contract() -> None:
     assert "/opt/wolt-runtime/" in dockerfile
     assert "scripts/install-cosign.sh" in dockerfile
     assert "compose.host-agent.yml" in dockerfile
+
+
+def test_host_operations_ui_uses_the_minimal_runtime_repair_path() -> None:
+    bundle = "\n".join(
+        asset.read_text(encoding="utf-8")
+        for asset in (ROOT / "app" / "web" / "static" / "assets").glob("*.js")
+    )
+
+    assert "sudo /data/WOLT/runtime/scripts/install-host-agent.sh /data/WOLT" in bundle
+    assert "sudo ./scripts/install-host-agent.sh /data/WOLT" not in bundle

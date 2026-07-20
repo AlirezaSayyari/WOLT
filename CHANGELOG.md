@@ -2,6 +2,18 @@
 
 All notable changes follow Keep a Changelog and semantic versioning.
 
+## [1.1.1] - 2026-07-20
+
+### Fixed
+
+- Host Operations now shows the correct Host Agent repair command for clone-free minimal installations.
+- Host Agent token mismatches now produce an actionable UI error instead of a generic request failure.
+- Root-execution guidance from the Host Agent installer now reflects the script path actually invoked.
+
+### Changed
+
+- README and the Host Operations runbook now distinguish the source-checkout command from the published minimal-runtime repair command.
+
 ## [1.1.0] - 2026-07-20
 
 ### Added

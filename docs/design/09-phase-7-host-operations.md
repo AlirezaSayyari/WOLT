@@ -41,7 +41,7 @@ an argument list is passed to `subprocess` with `shell=False`.
 From the WOLT project directory on the Docker host:
 
 ```bash
-sudo ./scripts/install-host-agent.sh /data/WOLT
+sudo /data/WOLT/runtime/scripts/install-host-agent.sh /data/WOLT
 ```
 
 The installer:

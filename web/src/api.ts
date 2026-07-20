@@ -277,6 +277,7 @@ export function readableError(error: unknown): string {
     smtp_delivery_failed: 'WOLT could not deliver the email. Verify the SMTP host, TLS mode, port, and credential.',
     host_agent_not_configured: 'The restricted Host Agent is not configured.',
     host_agent_unavailable: 'The Host Agent socket is unavailable. Check its systemd service and Compose override.',
+    host_agent_unauthorized: 'The Host Agent token does not match the app. Run the Host Agent repair command, then recreate the app container.',
     host_operation_in_progress: 'Another host operation is already running.',
     host_command_failed: 'A restricted host command failed. Review the Host Agent journal.',
     release_discovery_failed: 'Docker Hub release discovery failed.',
